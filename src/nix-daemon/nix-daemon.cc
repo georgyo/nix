@@ -11,6 +11,7 @@
 #include "finally.hh"
 
 #include <algorithm>
+#include <sstream>
 
 #include <cstring>
 #include <unistd.h>
@@ -25,6 +26,7 @@
 #include <grp.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <syslog.h>
 
 #if __APPLE__ || __FreeBSD__
 #include <sys/ucred.h>
@@ -232,6 +234,48 @@ struct RetrieveRegularNARSink : ParseSink
     }
 };
 
+static const char* buildModeName(BuildMode bm)
+{
+  switch (bm) {
+    case bmNormal:
+      return "normal";
+
+    case bmRepair:
+      return "repair";
+
+    case bmCheck:
+      return "check";
+
+    default:
+      return "unknown";
+  }
+}
+
+static const char* verbosityName(Verbosity v)
+{
+  switch (v) {
+    case lvlError:
+      return "error";
+
+    case lvlInfo:
+      return "info";
+
+    case lvlTalkative:
+      return "talkative";
+
+    case lvlChatty:
+      return "chatty";
+
+    case lvlDebug:
+      return "debug";
+
+    case lvlVomit:
+      return "vomit";
+
+    default:
+      return "unknown";
+  }
+}
 
 static void performOp(TunnelLogger * logger, ref<Store> store,
     bool trusted, unsigned int clientVersion,
@@ -246,6 +290,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
            that the 'Error' exception handler doesn't close the
            connection.  */
         Path path = readString(from);
+        syslog(LOG_NOTICE, "op = isValidPath; path = %s", path.c_str());
         logger->startWork();
         store->assertStorePath(path);
         bool result = store->isValidPath(path);
@@ -256,6 +301,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryValidPaths: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = queryValidPaths";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         PathSet res = store->queryValidPaths(paths);
         logger->stopWork();
@@ -265,6 +317,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopHasSubstitutes: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = hasSubstitutes; path = %s", path.c_str());
         logger->startWork();
         PathSet res = store->querySubstitutablePaths({path});
         logger->stopWork();
@@ -274,6 +327,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQuerySubstitutablePaths: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = querySubstitutablePaths";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         PathSet res = store->querySubstitutablePaths(paths);
         logger->stopWork();
@@ -283,6 +343,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryPathHash: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = queryPathHash; path = %s", path.c_str());
         logger->startWork();
         auto hash = store->queryPathInfo(path)->narHash;
         logger->stopWork();
@@ -295,6 +356,21 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopQueryValidDerivers:
     case wopQueryDerivationOutputs: {
         Path path = readStorePath(*store, from);
+
+        if (op == wopQueryReferences)
+          syslog(LOG_NOTICE, "op = queryReferences; path = %s", path.c_str());
+
+        if (op == wopQueryReferrers)
+          syslog(LOG_NOTICE, "op = queryReferrers; path = %s", path.c_str());
+
+        if (op == wopQueryValidDerivers)
+          syslog(LOG_NOTICE, "op = queryValidDerivers; path = %s",
+                 path.c_str());
+
+        if (op == wopQueryDerivationOutputs)
+          syslog(LOG_NOTICE, "op = queryDerivationOutputs; path = %s",
+                 path.c_str());
+
         logger->startWork();
         PathSet paths;
         if (op == wopQueryReferences)
@@ -311,6 +387,8 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryDerivationOutputNames: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = queryDerivationOutputNames; path = %s",
+               path.c_str());
         logger->startWork();
         StringSet names;
         names = store->queryDerivationOutputNames(path);
@@ -321,6 +399,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryDeriver: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = queryDeriver; path = %s", path.c_str());
         logger->startWork();
         auto deriver = store->queryPathInfo(path)->deriver;
         logger->stopWork();
@@ -330,6 +409,8 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryPathFromHashPart: {
         string hashPart = readString(from);
+        syslog(LOG_NOTICE, "op = queryPathFromHashPart; hashPart = %s",
+               hashPart.c_str());
         logger->startWork();
         Path path = store->queryPathFromHashPart(hashPart);
         logger->stopWork();
@@ -347,6 +428,10 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
             recursive = true;
         }
         HashType hashAlgo = parseHashType(s);
+
+        syslog(LOG_NOTICE, "op = addToStore; name = %s; recursive = %s;"
+               " security = %s",
+               baseName.c_str(), recursive ? "true" : "false", s.c_str());
 
         TeeSource savedNAR(from);
         RetrieveRegularNARSink savedRegular;
@@ -377,6 +462,12 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
         string suffix = readString(from);
         string s = readString(from);
         PathSet refs = readStorePaths<PathSet>(*store, from);
+        std::stringstream ss;
+        ss << "op = addTextToStore; ";
+        ss << "sec = " << s;
+        for (auto ref : refs)
+          ss << "; ref = " << ref;
+        syslog(LOG_NOTICE, ss.str().c_str());
         logger->startWork();
         Path path = store->addTextToStore(suffix, s, refs, NoRepair);
         logger->stopWork();
@@ -387,6 +478,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopExportPath: {
         Path path = readStorePath(*store, from);
         readInt(from); // obsolete
+        syslog(LOG_NOTICE, "op = exportPath; path = %s", path.c_str());
         logger->startWork();
         TunnelSink sink(to);
         store->exportPath(path, sink);
@@ -396,6 +488,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     case wopImportPaths: {
+        syslog(LOG_NOTICE, "op = importPaths");
         logger->startWork();
         TunnelSource source(from);
         Paths paths = store->importPaths(source, nullptr,
@@ -416,6 +509,14 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
             if (mode == bmRepair && !trusted)
                 throw Error("repairing is not allowed because you are not in 'trusted-users'");
         }
+
+        std::stringstream ss;
+        ss << "op = buildPaths; ";
+        ss << "mode = " << buildModeName(mode);
+        for (auto path : drvs)
+          ss << "; " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         store->buildPaths(drvs, mode);
         logger->stopWork();
@@ -428,6 +529,10 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
         BasicDerivation drv;
         readDerivation(from, *store, drv);
         BuildMode buildMode = (BuildMode) readInt(from);
+        
+        syslog(LOG_NOTICE, "op = buildDerivation; path = %s; buildMode = %s",
+               drvPath.c_str(), buildModeName(buildMode));
+
         logger->startWork();
         if (!trusted)
             throw Error("you are not privileged to build derivations");
@@ -439,6 +544,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopEnsurePath: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = ensurePath; path = %s", path.c_str());
         logger->startWork();
         store->ensurePath(path);
         logger->stopWork();
@@ -448,6 +554,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopAddTempRoot: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = addTempRoot; path = %s", path.c_str());
         logger->startWork();
         store->addTempRoot(path);
         logger->stopWork();
@@ -457,6 +564,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopAddIndirectRoot: {
         Path path = absPath(readString(from));
+        syslog(LOG_NOTICE, "op = addTempRoot; path = %s", path.c_str());
         logger->startWork();
         store->addIndirectRoot(path);
         logger->stopWork();
@@ -465,6 +573,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     case wopSyncWithGC: {
+        syslog(LOG_NOTICE, "op = syncWithGC");
         logger->startWork();
         store->syncWithGC();
         logger->stopWork();
@@ -473,6 +582,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     case wopFindRoots: {
+        syslog(LOG_NOTICE, "op = findRoots");
         logger->startWork();
         Roots roots = store->findRoots();
         logger->stopWork();
@@ -487,6 +597,15 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
         options.action = (GCOptions::GCAction) readInt(from);
         options.pathsToDelete = readStorePaths<PathSet>(*store, from);
         from >> options.ignoreLiveness >> options.maxFreed;
+
+        std::stringstream ss;
+        ss << "op = collectGarbage; ";
+        ss << "ignoreLiveness = " << options.ignoreLiveness << "; ";
+        ss << "maxFreed = " << options.maxFreed;
+        for (auto path : options.pathsToDelete)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         // obsolete fields
         readInt(from);
         readInt(from);
@@ -519,15 +638,28 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
         settings.buildCores = readInt(from);
         settings.useSubstitutes  = readInt(from);
 
+        std::stringstream ss;
+        ss << "op = setOptions; ";
+        ss << "keepFailed = " << settings.keepFailed << "; ";
+        ss << "keepGoing = " << settings.keepGoing << "; ";
+        ss << "tryFallback = " << settings.tryFallback << "; ";
+        ss << "verbosity = " << verbosityName(verbosity) << "; ";
+        ss << "maxBuildJobs = " << settings.maxBuildJobs.get() << "; ";
+        ss << "maxSilentTime = " << settings.maxSilentTime << "; ";
+        ss << "buildCores = " << settings.buildCores << "; ";
+        ss << "useSubstitutes = " << settings.useSubstitutes;
+
         StringMap overrides;
         if (GET_PROTOCOL_MINOR(clientVersion) >= 12) {
             unsigned int n = readInt(from);
             for (unsigned int i = 0; i < n; i++) {
                 string name = readString(from);
                 string value = readString(from);
+                ss << "; override = " << name << "=" << value;
                 overrides.emplace(name, value);
             }
         }
+        syslog(LOG_NOTICE, ss.str().c_str());
 
         logger->startWork();
 
@@ -576,6 +708,8 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQuerySubstitutablePathInfo: {
         Path path = absPath(readString(from));
+        syslog(LOG_NOTICE, "op = querySubstitutablePathInfo; path = %s",
+               path.c_str());
         logger->startWork();
         SubstitutablePathInfos infos;
         store->querySubstitutablePathInfos({path}, infos);
@@ -591,6 +725,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQuerySubstitutablePathInfos: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = querySubstitutablePathInfos";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         SubstitutablePathInfos infos;
         store->querySubstitutablePathInfos(paths, infos);
@@ -604,6 +745,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     case wopQueryAllValidPaths: {
+        syslog(LOG_NOTICE, "op = queryAllValidPaths");
         logger->startWork();
         PathSet paths = store->queryAllValidPaths();
         logger->stopWork();
@@ -613,6 +755,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryPathInfo: {
         Path path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = queryPathInfo; path = %s", path.c_str());
         std::shared_ptr<const ValidPathInfo> info;
         logger->startWork();
         try {
@@ -639,6 +782,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     case wopOptimiseStore:
+        syslog(LOG_NOTICE, "op = optimiseStore");
         logger->startWork();
         store->optimiseStore();
         logger->stopWork();
@@ -648,6 +792,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopVerifyStore: {
         bool checkContents, repair;
         from >> checkContents >> repair;
+
+        std::stringstream ss;
+        ss << "op = verifyStore; ";
+        ss << "check = " << (checkContents ? "true" : "false") << "; ";
+        ss << "repair = " << (repair ? "true" : "false");
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         if (repair && !trusted)
             throw Error("you are not privileged to repair paths");
@@ -660,6 +811,14 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopAddSignatures: {
         Path path = readStorePath(*store, from);
         StringSet sigs = readStrings<StringSet>(from);
+
+        std::stringstream ss;
+        ss << "op = addSignatures; ";
+        ss << "path = " << path;
+        for (auto sig : sigs)
+          ss << "; sig = " << sig;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         if (!trusted)
             throw Error("you are not privileged to add signatures");
@@ -671,6 +830,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopNarFromPath: {
         auto path = readStorePath(*store, from);
+        syslog(LOG_NOTICE, "op = narFromPath; path = %s", path.c_str());
         logger->startWork();
         logger->stopWork();
         dumpPath(path, to);
@@ -705,6 +865,22 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
             source = std::make_unique<StringSource>(saved);
         }
 
+        std::stringstream ss;
+        ss << "op = addToStoreNar; ";
+        ss << "deriver = "       << info.deriver                       << "; ";
+        ss << "hash = "          << info.narHash.to_string()           << "; ";
+        ss << "regTime = "       << info.registrationTime              << "; ";
+        ss << "ca = "            << info.ca                            << "; ";
+        ss << "size = "          << info.narSize                       << "; ";
+        ss << "repair = "        << (repair ? "true" : "false")        << "; ";
+        ss << "ultimate = "      << (info.ultimate ? "true" : "false") << "; ";
+        ss << "dontCheckSigs = " << (dontCheckSigs ? "true" : "false");
+        for (auto sig : info.sigs)
+          ss << "; sig = " << sig;
+        for (auto path : info.references)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
 
         // FIXME: race if addToStore doesn't read source?
@@ -717,6 +893,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryMissing: {
         PathSet targets = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = queryMissing";
+        for (auto target : targets)
+          ss << "; path = " << target;
+        syslog(LOG_NOTICE, ss.str().c_str());
+
         logger->startWork();
         PathSet willBuild, willSubstitute, unknown;
         unsigned long long downloadSize, narSize;
@@ -727,6 +910,7 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     }
 
     default:
+        syslog(LOG_ERR, "invalidOperation = %d",  op);
         throw Error(format("invalid operation %1%") % op);
     }
 }
@@ -979,6 +1163,7 @@ static void daemonLoop(char * * argv)
     closeOnExec(fdSocket.get());
 
     /* Loop accepting connections. */
+    syslog(LOG_INFO, "Starting accepting connections");
     while (1) {
 
         try {
@@ -1002,6 +1187,7 @@ static void daemonLoop(char * * argv)
             struct passwd * pw = peer.uidKnown ? getpwuid(peer.uid) : 0;
             string user = pw ? pw->pw_name : std::to_string(peer.uid);
 
+
             struct group * gr = peer.gidKnown ? getgrgid(peer.gid) : 0;
             string group = gr ? gr->gr_name : std::to_string(peer.gid);
 
@@ -1014,9 +1200,14 @@ static void daemonLoop(char * * argv)
             if ((!trusted && !matchUser(user, group, allowedUsers)) || group == settings.buildUsersGroup)
                 throw Error(format("user '%1%' is not allowed to connect to the Nix daemon") % user);
 
+            std::string conn_pid  = peer.pidKnown ? std::to_string(peer.pid) : "<unknown>";
+            std::string conn_user = peer.uidKnown ? user : "<unknown>";
+
             printInfo(format((string) "accepted connection from pid %1%, user %2%" + (trusted ? " (trusted)" : ""))
-                % (peer.pidKnown ? std::to_string(peer.pid) : "<unknown>")
-                % (peer.uidKnown ? user : "<unknown>"));
+                % conn_pid % conn_user);
+
+            syslog(LOG_NOTICE, "Connection from pid %s, user %s",
+                conn_pid.c_str(), conn_user.c_str());
 
             /* Fork a child to handle the connection. */
             ProcessOptions options;
@@ -1128,7 +1319,11 @@ int main(int argc, char * * argv)
                 processConnection(true);
             }
         } else {
+            (void)setlogmask(LOG_UPTO(LOG_INFO));
+            openlog("nix-daemon", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
             daemonLoop(argv);
         }
     });
+
+    closelog();
 }
