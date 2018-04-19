@@ -307,7 +307,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "op = queryValidPaths";
         for (auto path : paths)
           ss << "; path = " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         PathSet res = store->queryValidPaths(paths);
@@ -333,7 +333,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "op = querySubstitutablePaths";
         for (auto path : paths)
           ss << "; path = " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         PathSet res = store->querySubstitutablePaths(paths);
@@ -430,10 +430,6 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         }
         HashType hashAlgo = parseHashType(s);
 
-        syslog(LOG_NOTICE, "op = addToStore; name = %s; recursive = %s;"
-               " security = %s",
-               baseName.c_str(), recursive ? "true" : "false", s.c_str());
-
         TeeSource savedNAR(from);
         RetrieveRegularNARSink savedRegular;
 
@@ -459,12 +455,6 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         string suffix = readString(from);
         string s = readString(from);
         PathSet refs = readStorePaths<PathSet>(*store, from);
-        std::stringstream ss;
-        ss << "op = addTextToStore; ";
-        ss << "sec = " << s;
-        for (auto ref : refs)
-          ss << "; ref = " << ref;
-        syslog(LOG_NOTICE, ss.str().c_str());
         logger->startWork();
         Path path = store->addTextToStore(suffix, s, refs, NoRepair);
         logger->stopWork();
@@ -512,7 +502,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "mode = " << buildModeName(mode);
         for (auto path : drvs)
           ss << "; " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         store->buildPaths(drvs, mode);
@@ -601,7 +591,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "maxFreed = " << options.maxFreed;
         for (auto path : options.pathsToDelete)
           ss << "; path = " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         // obsolete fields
         readInt(from);
@@ -656,7 +646,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
                 overrides.emplace(name, value);
             }
         }
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
 
@@ -727,7 +717,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "op = querySubstitutablePathInfos";
         for (auto path : paths)
           ss << "; path = " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         SubstitutablePathInfos infos;
@@ -794,7 +784,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "op = verifyStore; ";
         ss << "check = " << (checkContents ? "true" : "false") << "; ";
         ss << "repair = " << (repair ? "true" : "false");
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         if (repair && !trusted)
@@ -814,7 +804,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "path = " << path;
         for (auto sig : sigs)
           ss << "; sig = " << sig;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         if (!trusted)
@@ -865,7 +855,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
           ss << "; sig = " << sig;
         for (auto path : info.references)
           ss << "; path = " << path;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         TeeSink tee(from);
         parseDump(tee, tee.source);
@@ -884,7 +874,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         ss << "op = queryMissing";
         for (auto target : targets)
           ss << "; path = " << target;
-        syslog(LOG_NOTICE, ss.str().c_str());
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
         PathSet willBuild, willSubstitute, unknown;
