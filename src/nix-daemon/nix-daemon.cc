@@ -257,6 +257,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryValidPaths: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = queryValidPaths";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         PathSet res = store->queryValidPaths(paths);
         logger->stopWork();
@@ -275,6 +282,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQuerySubstitutablePaths: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = querySubstitutablePaths";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         PathSet res = store->querySubstitutablePaths(paths);
         logger->stopWork();
@@ -417,6 +431,14 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
             if (mode == bmRepair && !trusted)
                 throw Error("repairing is not allowed because you are not in 'trusted-users'");
         }
+
+        std::stringstream ss;
+        ss << "op = buildPaths; ";
+        ss << "mode = " << buildModeName(mode);
+        for (auto path : drvs)
+          ss << "; " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         store->buildPaths(drvs, mode);
         logger->stopWork();
@@ -488,6 +510,15 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
         options.action = (GCOptions::GCAction) readInt(from);
         options.pathsToDelete = readStorePaths<PathSet>(*store, from);
         from >> options.ignoreLiveness >> options.maxFreed;
+
+        std::stringstream ss;
+        ss << "op = collectGarbage; ";
+        ss << "ignoreLiveness = " << options.ignoreLiveness << "; ";
+        ss << "maxFreed = " << options.maxFreed;
+        for (auto path : options.pathsToDelete)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         // obsolete fields
         readInt(from);
         readInt(from);
@@ -529,6 +560,8 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
                 overrides.emplace(name, value);
             }
         }
+
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
 
         logger->startWork();
 
@@ -593,6 +626,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQuerySubstitutablePathInfos: {
         PathSet paths = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = querySubstitutablePathInfos";
+        for (auto path : paths)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         SubstitutablePathInfos infos;
         store->querySubstitutablePathInfos(paths, infos);
@@ -650,6 +690,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopVerifyStore: {
         bool checkContents, repair;
         from >> checkContents >> repair;
+
+        std::stringstream ss;
+        ss << "op = verifyStore; ";
+        ss << "check = " << (checkContents ? "true" : "false") << "; ";
+        ss << "repair = " << (repair ? "true" : "false");
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         if (repair && !trusted)
             throw Error("you are not privileged to repair paths");
@@ -662,6 +709,14 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
     case wopAddSignatures: {
         Path path = readStorePath(*store, from);
         StringSet sigs = readStrings<StringSet>(from);
+
+        std::stringstream ss;
+        ss << "op = addSignatures; ";
+        ss << "path = " << path;
+        for (auto sig : sigs)
+          ss << "; sig = " << sig;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         if (!trusted)
             throw Error("you are not privileged to add signatures");
@@ -707,6 +762,22 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
             source = std::make_unique<StringSource>(saved);
         }
 
+        std::stringstream ss;
+        ss << "op = addToStoreNar; ";
+        ss << "deriver = "       << info.deriver                       << "; ";
+        ss << "hash = "          << info.narHash.to_string()           << "; ";
+        ss << "regTime = "       << info.registrationTime              << "; ";
+        ss << "ca = "            << info.ca                            << "; ";
+        ss << "size = "          << info.narSize                       << "; ";
+        ss << "repair = "        << (repair ? "true" : "false")        << "; ";
+        ss << "ultimate = "      << (info.ultimate ? "true" : "false") << "; ";
+        ss << "dontCheckSigs = " << (dontCheckSigs ? "true" : "false");
+        for (auto sig : info.sigs)
+          ss << "; sig = " << sig;
+        for (auto path : info.references)
+          ss << "; path = " << path;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
 
         // FIXME: race if addToStore doesn't read source?
@@ -719,6 +790,13 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
     case wopQueryMissing: {
         PathSet targets = readStorePaths<PathSet>(*store, from);
+
+        std::stringstream ss;
+        ss << "op = queryMissing";
+        for (auto target : targets)
+          ss << "; path = " << target;
+        syslog(LOG_NOTICE, "%s", ss.str().c_str());
+
         logger->startWork();
         PathSet willBuild, willSubstitute, unknown;
         unsigned long long downloadSize, narSize;
