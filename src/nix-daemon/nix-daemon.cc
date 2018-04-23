@@ -430,10 +430,6 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         }
         HashType hashAlgo = parseHashType(s);
 
-        syslog(LOG_NOTICE, "op = addToStore; name = %s; recursive = %s;"
-               " security = %s",
-               baseName.c_str(), recursive ? "true" : "false", s.c_str());
-
         TeeSource savedNAR(from);
         RetrieveRegularNARSink savedRegular;
 
