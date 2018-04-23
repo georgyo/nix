@@ -461,7 +461,7 @@ static void performOp(TunnelLogger * logger, ref<LocalStore> store,
         PathSet refs = readStorePaths<PathSet>(*store, from);
         std::stringstream ss;
         ss << "op = addTextToStore; ";
-        ss << "sec = " << s;
+        // ss << "sec = " << s;
         for (auto ref : refs)
           ss << "; ref = " << ref;
         syslog(LOG_NOTICE, "%s", ss.str().c_str());
