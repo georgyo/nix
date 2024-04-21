@@ -14,6 +14,16 @@ struct HttpBinaryCacheStoreConfig : virtual BinaryCacheStoreConfig
 
     const std::string name() override { return "HTTP Binary Cache Store"; }
 
+    const Setting<std::string> authmethod{this, "", "authmethod",
+        R"(
+          libcurl auth method to use (`basic`, `digest`, `bearer`, `negotiate`, `ntlm`, `any`, or `anysafe`).
+          Any other value will be silently ignored.
+          See https://curl.se/libcurl/c/CURLOPT_HTTPAUTH.html for more info.
+        )"};
+
+    const Setting<std::string> bearer_token{this, "", "bearer-token",
+        "Bearer token to use for authentication. Requires `authmethod` to be set to `bearer`."};
+
     std::string doc() override
     {
         return
@@ -149,11 +159,13 @@ protected:
 
     FileTransferRequest makeRequest(const std::string & path)
     {
-        return FileTransferRequest(
+        auto request = FileTransferRequest(
             hasPrefix(path, "https://") || hasPrefix(path, "http://") || hasPrefix(path, "file://")
             ? path
             : cacheUri + "/" + path);
-
+        request.authmethod = authmethod;
+        request.bearer_token = bearer_token;
+        return request;
     }
 
     void getFile(const std::string & path, Sink & sink) override
