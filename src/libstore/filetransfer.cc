@@ -318,7 +318,7 @@ struct curlFileTransfer : public FileTransfer
             #if LIBCURL_VERSION_NUM >= 0x072f00
             // Our writeCallbackWrapper does not support rewinding which breaks
             // negotiate/kerberos auth over http/2.
-            if (fileTransferSettings.enableHttp2 && request.authmethod != "negotiate")
+            if (fileTransferSettings.enableHttp2 && request.authmethod != HttpAuthMethod::NEGOTIATE)
                 curl_easy_setopt(req, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
             else
                 curl_easy_setopt(req, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
@@ -355,24 +355,26 @@ struct curlFileTransfer : public FileTransfer
                 curl_easy_setopt(req, CURLOPT_SSL_VERIFYHOST, 0);
             }
 
-            if (request.authmethod == "basic") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            } else if (request.authmethod == "bearer") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_BEARER);
-                curl_easy_setopt(req, CURLOPT_XOAUTH2_BEARER, request.bearer_token.c_str());
-            } else if (request.authmethod == "digest") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST);
-            } else if (request.authmethod == "negotiate") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_NEGOTIATE);
-                curl_easy_setopt(req, CURLOPT_USERNAME, "");
-                curl_easy_setopt(req, CURLOPT_PASSWORD, "");
-            } else if (request.authmethod == "ntlm") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_NTLM);
-            } else if (request.authmethod == "any") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_ANY);
-            } else if (request.authmethod == "anysafe") {
-                curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_ANYSAFE);
-            }
+            curl_easy_setopt(req, CURLOPT_HTTPAUTH, request.authmethod);
+
+            // if (request.authmethod == "basic") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            // } else if (request.authmethod == "bearer") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_BEARER);
+            //     curl_easy_setopt(req, CURLOPT_XOAUTH2_BEARER, request.bearer_token.c_str());
+            // } else if (request.authmethod == "digest") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST);
+            // } else if (request.authmethod == "negotiate") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_NEGOTIATE);
+            //     curl_easy_setopt(req, CURLOPT_USERNAME, "");
+            //     curl_easy_setopt(req, CURLOPT_PASSWORD, "");
+            // } else if (request.authmethod == "ntlm") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_NTLM);
+            // } else if (request.authmethod == "any") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_ANY);
+            // } else if (request.authmethod == "anysafe") {
+            //     curl_easy_setopt(req, CURLOPT_HTTPAUTH, CURLAUTH_ANYSAFE);
+            // }
 
             curl_easy_setopt(req, CURLOPT_CONNECTTIMEOUT, fileTransferSettings.connectTimeout.get());
 

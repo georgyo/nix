@@ -1,4 +1,5 @@
 #include "binary-cache-store.hh"
+#include "http-binary-cache-store.hh"
 #include "filetransfer.hh"
 #include "globals.hh"
 #include "nar-info-disk-cache.hh"
@@ -14,7 +15,7 @@ struct HttpBinaryCacheStoreConfig : virtual BinaryCacheStoreConfig
 
     const std::string name() override { return "HTTP Binary Cache Store"; }
 
-    const Setting<std::string> authmethod{this, "", "authmethod",
+    const Setting<HttpAuthMethod> authmethod{this, HttpAuthMethod::BASIC, "authmethod",
         R"(
           libcurl auth method to use (`basic`, `digest`, `bearer`, `negotiate`, `ntlm`, `any`, or `anysafe`).
           Any other value will be silently ignored.

@@ -4,6 +4,7 @@
 #include "types.hh"
 #include "hash.hh"
 #include "config.hh"
+#include "http-binary-cache-store.hh"
 
 #include <string>
 #include <future>
@@ -56,7 +57,7 @@ struct FileTransferRequest
     std::string expectedETag;
     bool verifyTLS = true;
     bool head = false;
-    std::string authmethod;
+    HttpAuthMethod authmethod;
     std::string bearer_token;
     size_t tries = fileTransferSettings.tries;
     unsigned int baseRetryTimeMs = 250;
