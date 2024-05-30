@@ -9,6 +9,49 @@ namespace nix {
 
 MakeError(UploadToHTTP, Error);
 
+HttpAuthMethodSetting::HttpAuthMethodSetting(Config * options,
+    const HttpAuthMethod & def,
+    const std::string & name,
+    const std::string & description,
+    const std::set<std::string> & aliases)
+    : BaseSetting<HttpAuthMethod>(def, true, name, description, aliases)
+{
+    options->addSetting(this);
+}
+
+
+template<> HttpAuthMethod BaseSetting<HttpAuthMethod>::parse(const std::string & str) const
+{
+        static const std::map<std::string, HttpAuthMethod> map = {
+            {"basic", HttpAuthMethod::BASIC},
+            {"digest", HttpAuthMethod::DIGEST},
+            {"negotiate", HttpAuthMethod::NEGOTIATE},
+            {"ntlm", HttpAuthMethod::NTLM},
+            {"bearer", HttpAuthMethod::BEARER},
+            {"any", HttpAuthMethod::ANY},
+            {"anysafe", HttpAuthMethod::ANYSAFE}
+        };
+        auto it = map.find(str);
+        if (it != map.end()) {
+            return it->second;
+        }
+        return HttpAuthMethod::BASIC;
+}
+
+template<> std::string BaseSetting<HttpAuthMethod>::to_string() const
+{
+    switch (value) {
+        case HttpAuthMethod::BASIC: return "basic";
+        case HttpAuthMethod::DIGEST: return "digest";
+        case HttpAuthMethod::NEGOTIATE: return "negotiate";
+        case HttpAuthMethod::NTLM: return "ntlm";
+        case HttpAuthMethod::BEARER: return "bearer";
+        case HttpAuthMethod::ANY: return "any";
+        case HttpAuthMethod::ANYSAFE: return "anysafe";
+    }
+    return "basic";
+}
+
 struct HttpBinaryCacheStoreConfig : virtual BinaryCacheStoreConfig
 {
     using BinaryCacheStoreConfig::BinaryCacheStoreConfig;

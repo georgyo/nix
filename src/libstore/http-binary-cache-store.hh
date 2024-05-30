@@ -16,26 +16,10 @@ namespace nix {
         ANYSAFE = CURLAUTH_ANYSAFE
     };
 
-    HttpAuthMethod parseHttpAuthMethod(const std::string &str) {
-        static const std::map<std::string, HttpAuthMethod> map = {
-            {"basic", HttpAuthMethod::BASIC},
-            {"digest", HttpAuthMethod::DIGEST},
-            {"negotiate", HttpAuthMethod::NEGOTIATE},
-            {"ntlm", HttpAuthMethod::NTLM},
-            {"bearer", HttpAuthMethod::BEARER},
-            {"any", HttpAuthMethod::ANY},
-            {"anysafe", HttpAuthMethod::ANYSAFE}
-        };
-        auto it = map.find(str);
-        if (it != map.end()) {
-            return it->second;
-        }
-        return HttpAuthMethod::BASIC;
-    }
 /**
- * Like `PathSetting`, but the absence of a path is also allowed.
+ * A setting for curl's HTTP authentication methods
  *
- * `std::optional` is used instead of the empty string for clarity.
+ * Unknown values default to BASIC, which is the also the default in curl.
  */
 class HttpAuthMethodSetting : public BaseSetting<HttpAuthMethod>
 {
@@ -49,7 +33,7 @@ public:
 
     HttpAuthMethod parse(const std::string & str) const override;
 
-    void operator =(const HttpAuthMethod & v);
+    void operator =(const HttpAuthMethod & v) { this->assign(v); }
 };
 
 }
