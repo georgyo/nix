@@ -88,9 +88,31 @@ public:
 };
 
 /**
+ * A position at which a primop is invoked (`noPos` or presumably an `ExprCall` location).
+ *
+ * If you're about to pass your primop call position to a different function that
+ * runs in your primop implementation, then stop, because that position has
+ * already been printed in the trace. Just don't pass a pos, or pass `noPos`.
+ *
+ * Nonetheless, we pass the call site to the primop so that it can be used
+ * in other contexts than the usual `try`/`catch`/`addTrace` flow, and
+ * specifically as extra context in delayed computations that may fail.
+ *
+ * Alternatively, a primop registration can set `PrimOp::addTrace = false`, so
+ * that the otherwise redundant trace item is suppressed, and the primop becomes
+ * responsible for printing its call site location, allowing for some
+ * customization of the trace.
+ */
+struct CallSite
+{
+    /** An already printed pos! Don't make it noisy. Read the `CallSite` comment. */
+    PosIdx pos;
+};
+
+/**
  * Function that implements a primop.
  */
-using PrimOpFun = void(EvalState & state, const PosIdx pos, Value ** args, Value & v);
+using PrimOpFun = void(EvalState & state, CallSite callSite, Value * const * args, Value & v);
 
 /**
  * Info about a primitive operation, and its implementation
@@ -198,6 +220,22 @@ void copyContext(
 std::string printValue(EvalState & state, Value & v);
 std::ostream & operator<<(std::ostream & os, const ValueType t);
 
+/**
+ * Trace-message stage marker for "we tried to reach a usable value
+ * from `v` but failed".
+ * Renders as `using` when it has evaluated to a proper value, and
+ * `evaluating` otherwise.
+ *
+ * Use in a `%s` in `addTrace`, e.g.:
+ * `"while %s the result of the %s attribute"`.
+ */
+struct WhileTryingToUse
+{
+    const Value & v;
+};
+
+std::ostream & operator<<(std::ostream & os, WhileTryingToUse w);
+
 struct RegexCache;
 
 ref<RegexCache> makeRegexCache();
@@ -234,7 +272,7 @@ struct StaticEvalSymbols
         line, column, functor, toString, right, wrong, structuredAttrs, json, allowedReferences, allowedRequisites,
         disallowedReferences, disallowedRequisites, maxSize, maxClosureSize, builder, args, contentAddressed, impure,
         outputHash, outputHashAlgo, outputHashMode, recurseForDerivations, description, self, epsilon, startSet,
-        operator_, key, path, prefix, outputSpecified, __meta;
+        operator_, key, path, prefix, outputSpecified, __meta, requiredSystemFeatures;
 
     Expr::AstSymbols exprSymbols;
 
@@ -288,6 +326,7 @@ struct StaticEvalSymbols
             .prefix = alloc.create("prefix"),
             .outputSpecified = alloc.create("outputSpecified"),
             .__meta = alloc.create("__meta"),
+            .requiredSystemFeatures = alloc.create("requiredSystemFeatures"),
             .exprSymbols = {
                 .sub = alloc.create("__sub"),
                 .lessThan = alloc.create("__lessThan"),
@@ -656,8 +695,8 @@ public:
      * type.
      */
     inline bool evalBool(Env & env, Expr * e);
-    inline bool evalBool(Env & env, Expr * e, const PosIdx pos, std::string_view errorCtx);
-    inline void evalAttrs(Env & env, Expr * e, Value & v, const PosIdx pos, std::string_view errorCtx);
+    inline bool evalBool(Env & env, Expr * e, std::string_view errorCtx);
+    inline void evalAttrs(Env & env, Expr * e, Value & v, std::string_view errorCtx);
 
     /**
      * If `v` is a thunk, enter it and overwrite `v` with the result
@@ -725,8 +764,35 @@ public:
      */
     bool isDerivation(Value & v);
 
-    std::optional<std::string> tryAttrsToString(
-        const PosIdx pos, Value & v, NixStringContext & context, bool coerceMore = false, bool copyToStore = true);
+    /**
+     * Force `v` and peel through `__toString` and `outPath` attributes
+     * repeatedly until reaching a terminal value: either a non-attrset,
+     * or an attrset that has neither attribute. Invoke
+     * `cb(peeled, cameThroughToString)` on that terminal value.
+     *
+     * `cb` runs while the peel's call stack is still live, so errors it
+     * raises carry a trace reflecting which `__toString` and `outPath`
+     * attributes were traversed to reach `peeled`. Relying on the stack
+     * to preserve that context avoids the cost and complexity of
+     * tracking provenance in the hot path at runtime.
+     *
+     * `__toString` takes precedence over a sibling `outPath` at each
+     * step, matching string-interpolation coercion in the language.
+     *
+     * `peeled` is always a valid, forced Value; in the terminal-attrset
+     * case it is that attrset.
+     *
+     * `cameThroughToString` is true iff the peel invoked at least one
+     * `__toString`.
+     *
+     * With `checkToStringReturn`, if any `__toString` was traversed the
+     * terminal value must be a string, path, or external value;
+     * otherwise a `TypeError` is thrown before `cb` runs. Pure `outPath`
+     * peels are exempt.
+     */
+    template<typename Cb>
+    auto peelToStringOutPath(const PosIdx pos, Value & v, bool checkToStringReturn, Cb && cb)
+        -> std::invoke_result_t<Cb, Value *, bool>;
 
     StorePath devirtualize(const StorePath & path, StringMap * rewrites = nullptr);
 
@@ -930,12 +996,11 @@ public:
 
     bool isFunctor(const Value & fun) const;
 
-    void callFunction(Value & fun, std::span<Value *> args, Value & vRes, const PosIdx pos);
+    void callFunction(Value & fun, std::span<Value * const> args, Value & vRes, const PosIdx pos);
 
     void callFunction(Value & fun, Value & arg, Value & vRes, const PosIdx pos)
     {
-        Value * args[] = {&arg};
-        callFunction(fun, args, vRes, pos);
+        callFunction(fun, std::to_array({&arg}), vRes, pos);
     }
 
     /**
@@ -1048,7 +1113,7 @@ public:
      * Realise the given string with context, and return the string with outputs instead of downstream output
      * placeholders.
      * @param[in] str the string to realise
-     * @param[out] paths all referenced store paths will be added to this set
+     * @param[out] storePathsOutMaybe all referenced store paths will be added to this set if it's not nullptr
      * @return the realised string
      * @throw EvalError if the value is not a string, path or derivation (see `coerceToString`)
      */
@@ -1126,9 +1191,9 @@ private:
     friend struct ExprFloat;
     friend struct ExprPath;
     friend struct ExprSelect;
-    friend void prim_getAttr(EvalState & state, const PosIdx pos, Value ** args, Value & v);
-    friend void prim_match(EvalState & state, const PosIdx pos, Value ** args, Value & v);
-    friend void prim_split(EvalState & state, const PosIdx pos, Value ** args, Value & v);
+    friend void prim_getAttr(EvalState & state, CallSite callSite, Value * const * args, Value & v);
+    friend void prim_match(EvalState & state, CallSite callSite, Value * const * args, Value & v);
+    friend void prim_split(EvalState & state, CallSite callSite, Value * const * args, Value & v);
 
     friend struct Value;
     friend class ListBuilder;

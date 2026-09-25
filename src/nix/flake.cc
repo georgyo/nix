@@ -21,6 +21,7 @@
 #include "nix/util/users.hh"
 #include "nix/fetchers/fetch-to-store.hh"
 #include "nix/store/local-fs-store.hh"
+#include "nix/store/build.hh"
 #include "nix/store/globals.hh"
 #include "nix/expr/parallel-eval.hh"
 #include "nix/util/exit.hh"
@@ -53,7 +54,7 @@ FlakeCommand::FlakeCommand()
 
 FlakeRef FlakeCommand::getFlakeRef()
 {
-    return parseFlakeRef(fetchSettings, flakeUrl, std::filesystem::current_path().string()); // FIXME
+    return parseFlakeRef(flakeUrl, std::filesystem::current_path().string()); // FIXME
 }
 
 flake::LockedFlake FlakeCommand::lockFlake()
@@ -64,7 +65,7 @@ flake::LockedFlake FlakeCommand::lockFlake()
 std::vector<FlakeRef> FlakeCommand::getFlakeRefsForCompletion()
 {
     return {// Like getFlakeRef but with expandTilde called first
-            parseFlakeRef(fetchSettings, expandTilde(flakeUrl), std::filesystem::current_path().string())};
+            parseFlakeRef(expandTilde(flakeUrl), std::filesystem::current_path().string())};
 }
 
 struct CmdFlakeUpdate : FlakeCommand
@@ -530,7 +531,7 @@ struct CmdFlakeCheck : FlakeCommand, MixPrintOutPaths, MixOutLinkBase, MixFlakeS
             // FIXME: should start building while evaluating.
             Activity act(*logger, lvlInfo, actUnknown, fmt("running %d flake checks", toBuild.size()));
 
-            auto buildResults = store->buildPathsWithResults(toBuild);
+            auto buildResults = store->getBuilder()->buildPathsWithResults(toBuild);
             assert(buildResults.size() == toBuild.size());
 
             for (auto & buildResult : buildResults) {
@@ -605,7 +606,7 @@ struct CmdFlakeInitCommon : virtual Args, EvalCommand, MixFlakeSchemas
         auto evalState = getEvalState();
 
         auto [templateFlakeRef, templateName] =
-            parseFlakeRefWithFragment(fetchSettings, templateUrl, std::filesystem::current_path().string());
+            parseFlakeRefWithFragment(templateUrl, std::filesystem::current_path().string());
 
         auto installable = InstallableFlake(
             nullptr,
@@ -617,7 +618,7 @@ struct CmdFlakeInitCommon : virtual Args, EvalCommand, MixFlakeSchemas
             lockFlags,
             {});
 
-        auto cursor = installable.getCursor(*evalState);
+        auto cursor = installable.getCursor(*evalState, AutoCall::No);
 
         auto templateDirAttr = cursor->getAttr("path")->forceValue();
         NixStringContext context;

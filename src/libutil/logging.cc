@@ -1,6 +1,7 @@
 #include "nix/util/logging.hh"
 #include "nix/util/file-descriptor.hh"
 #include "nix/util/environment-variables.hh"
+#include "nix/util/split.hh"
 #include "nix/util/terminal.hh"
 #include "nix/util/util.hh"
 #include "nix/util/config-global.hh"
@@ -8,6 +9,7 @@
 #include "nix/util/sync.hh"
 #include "nix/util/unix-domain-socket.hh"
 #include "nix/util/exit.hh"
+#include "nix/util/json-utils.hh"
 
 #include <atomic>
 #include <sstream>
@@ -191,19 +193,24 @@ public:
         Verbosity lvl,
         ActivityType type,
         const std::string & s,
-        const Fields & fields,
+        std::span<const Field> fields,
         ActivityId parent) noexcept override
     {
         if (lvl <= verbosity && !s.empty())
             log(lvl, s + "...");
     }
 
-    void result(ActivityId act, ResultType type, const Fields & fields) noexcept override
+    void result(ActivityId act, ResultType type, std::span<const Field> fields) noexcept override
     {
-        if (type == resBuildLogLine && printBuildLogs)
-            printError(std::get<std::string>(fields[0].raw));
-        else if (type == resPostBuildLogLine && printBuildLogs)
-            printError("post-build-hook: " + std::get<std::string>(fields[0].raw));
+        if (type == resBuildLogLine && printBuildLogs) {
+            const auto * lastLine = std::get_if<std::string>(&fields[0]);
+            if (lastLine)
+                printError(*lastLine);
+        } else if (type == resPostBuildLogLine && printBuildLogs) {
+            const auto * lastLine = std::get_if<std::string>(&fields[0]);
+            if (lastLine)
+                printError("post-build-hook: " + *lastLine);
+        }
     }
 };
 
@@ -249,7 +256,7 @@ Activity::Activity(
     Verbosity lvl,
     ActivityType type,
     const std::string & s,
-    const Logger::Fields & fields,
+    std::span<const Logger::Field> fields,
     ActivityId parent)
     : logger(logger)
     , id(nextId++ + (((uint64_t) getPid()) << 32))
@@ -313,18 +320,13 @@ struct JSONLogger : Logger
         return true;
     }
 
-    void addFields(nlohmann::json & json, const Fields & fields)
+    void addFields(nlohmann::json & json, std::span<const Field> fields)
     {
         if (fields.empty())
             return;
         auto & arr = json["fields"] = nlohmann::json::array();
         for (auto & f : fields)
-            if (auto p = std::get_if<uint64_t>(&f.raw))
-                arr.push_back(*p);
-            else if (auto p = std::get_if<std::string>(&f.raw))
-                arr.push_back(*p);
-            else
-                unreachable();
+            std::visit([&arr](const auto & v) { arr.push_back(v); }, f);
     }
 
     struct State
@@ -398,7 +400,7 @@ struct JSONLogger : Logger
         Verbosity lvl,
         ActivityType type,
         const std::string & s,
-        const Fields & fields,
+        std::span<const Field> fields,
         ActivityId parent) noexcept override
     {
         nlohmann::json json;
@@ -430,7 +432,7 @@ struct JSONLogger : Logger
         json["name"] = name;
         auto payload = nlohmann::json::object();
         for (auto & [key, value] : metadata)
-            std::visit([&](auto & v) { payload[std::string(key)] = v; }, value.raw);
+            std::visit([&](auto & v) { payload[std::string(key)] = v; }, value);
         json["payload"] = std::move(payload);
         write(std::move(json));
     }
@@ -443,7 +445,7 @@ struct JSONLogger : Logger
         write(std::move(json));
     }
 
-    void result(ActivityId act, ResultType type, const Fields & fields) noexcept override
+    void result(ActivityId act, ResultType type, std::span<const Field> fields) noexcept override
     {
         nlohmann::json json;
         json["action"] = "result";
@@ -518,26 +520,33 @@ void applyJSONLogger()
     }
 }
 
-static Logger::Fields getFields(nlohmann::json & json)
+static auto getFields(const nlohmann::json::array_t & json)
 {
-    Logger::Fields fields;
-    for (auto & f : json) {
+    std::vector<Logger::Field> fields;
+    for (const auto & f : json) {
         if (f.type() == nlohmann::json::value_t::number_unsigned)
-            fields.emplace_back(Logger::Field(f.get<uint64_t>()));
+            fields.emplace_back(Logger::Field(getUnsigned(f)));
         else if (f.type() == nlohmann::json::value_t::string)
-            fields.emplace_back(Logger::Field(f.get<std::string>()));
+            fields.emplace_back(Logger::Field(getString(f)));
         else
             throw Error("unsupported JSON type %d", (int) f.type());
     }
     return fields;
 }
 
-std::optional<nlohmann::json> parseJSONMessage(const std::string & msg, std::string_view source)
+static std::vector<Logger::Field> maybeGetFields(const nlohmann::json::array_t * json)
 {
-    if (!hasPrefix(msg, "@nix "))
+    if (!json)
+        return {};
+    return getFields(*json);
+}
+
+std::optional<nlohmann::json> parseJSONMessage(std::string_view msg, std::string_view source)
+{
+    if (!splitPrefix(msg, "@nix "))
         return std::nullopt;
     try {
-        return nlohmann::json::parse(std::string(msg, 5));
+        return nlohmann::json::parse(msg);
     } catch (std::exception & e) {
         printError("bad JSON log message from %s: %s", Uncolored(source), e.what());
     }
@@ -545,59 +554,82 @@ std::optional<nlohmann::json> parseJSONMessage(const std::string & msg, std::str
 }
 
 bool handleJSONLogMessage(
-    nlohmann::json & json,
+    const nlohmann::json & rawJson,
     const Activity & act,
     std::map<ActivityId, Activity> & activities,
     std::string_view source,
     bool trusted)
-{
-    try {
-        std::string action = json["action"];
+try {
+    using namespace std::string_view_literals;
 
-        if (action == "start") {
-            auto type = (ActivityType) json["type"];
-            if (trusted || type == actFileTransfer)
-                activities.emplace(
-                    std::piecewise_construct,
-                    std::forward_as_tuple(json["id"]),
-                    std::forward_as_tuple(
-                        *logger, (Verbosity) json["level"], type, json["text"], getFields(json["fields"]), act.id));
+    auto & json = getObject(rawJson);
+    std::string action = getString(valueAt(json, "action"sv));
+
+    if (action == "start"sv) {
+        auto rawType = getUnsigned(valueAt(json, "type"sv));
+        if (rawType != actUnknown && (rawType < actCopyPath || rawType > actLast) && rawType != actStringly)
+            throw Error("unknown activity type %d", rawType);
+        auto type = static_cast<ActivityType>(rawType);
+        if (trusted || type == actFileTransfer) {
+            auto level = verbosityFromIntClamped(getUnsigned(valueAt(json, "level"sv)));
+            auto id = getUnsigned(valueAt(json, "id"sv));
+            auto maybeFieldsValue = optionalValueAt(json, "fields"sv);
+            /* Back-compat, lack of "fields" member would silently translate into an empty
+               array of fields. */
+            auto fields = maybeGetFields(maybeFieldsValue ? &getArray(*maybeFieldsValue) : nullptr);
+            activities.emplace(
+                std::piecewise_construct,
+                std::forward_as_tuple(id),
+                std::forward_as_tuple(*logger, level, type, getString(valueAt(json, "text"sv)), fields, act.id));
         }
-
-        else if (action == "stop")
-            activities.erase((ActivityId) json["id"]);
-
-        else if (action == "result") {
-            auto i = activities.find((ActivityId) json["id"]);
-            if (i != activities.end())
-                i->second.result((ResultType) json["type"], getFields(json["fields"]));
-        }
-
-        else if (action == "setPhase") {
-            std::string phase = json["phase"];
-            act.result(resSetPhase, phase);
-        }
-
-        else if (action == "msg") {
-            std::string msg = json["msg"];
-            logger->log((Verbosity) json["level"], msg);
-        }
-
-        return true;
-    } catch (const nlohmann::json::exception & e) {
-        warn("Unable to handle a JSON message from %s: %s", Uncolored(source), e.what());
-        return false;
     }
+
+    else if (action == "stop"sv)
+        activities.erase(getUnsigned(valueAt(json, "id"sv)));
+
+    else if (action == "result"sv) {
+        ActivityId id = getUnsigned(valueAt(json, "id"sv));
+        auto i = activities.find(id);
+        auto rawType = getUnsigned(valueAt(json, "type"sv));
+        if ((rawType < resFileLinked || rawType > resLast) && rawType != resHttpStatus && rawType != resFetchToStore)
+            throw Error("unknown result type %d", rawType);
+        auto maybeFieldsValue = optionalValueAt(json, "fields"sv);
+        /* Back-compat, lack of "fields" member would silently translate into an empty
+           array of fields. */
+        auto fields = maybeGetFields(maybeFieldsValue ? &getArray(*maybeFieldsValue) : nullptr);
+        if (i != activities.end())
+            i->second.result(static_cast<ResultType>(rawType), fields);
+    }
+
+    else if (action == "setPhase"sv) {
+        std::string phase = getString(valueAt(json, "phase"sv));
+        act.result(resSetPhase, phase);
+    }
+
+    else if (action == "msg"sv) {
+        auto level = verbosityFromIntClamped(getUnsigned(valueAt(json, "level"sv)));
+        logger->log(level, getString(valueAt(json, "msg"sv)));
+    }
+
+    /* TODO: Don't ignore extra fields? Or keep on ignoring for forwards compatibility? */
+
+    return true;
+} catch (const nix::Error & e) {
+    warn("unable to handle a JSON message from %s: %s", Uncolored(source), e.message());
+    return false;
+} catch (const nlohmann::json::exception & e) {
+    warn("unable to handle a JSON message from %s: %s", Uncolored(source), e.what());
+    return false;
 }
 
 bool handleJSONLogMessage(
-    const std::string & msg,
+    std::string_view msg,
     const Activity & act,
     std::map<ActivityId, Activity> & activities,
     std::string_view source,
     bool trusted)
 {
-    auto json = parseJSONMessage(msg, source);
+    const auto json = parseJSONMessage(msg, source);
     if (!json)
         return false;
 

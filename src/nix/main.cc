@@ -1,3 +1,4 @@
+#include "nix/util/json-utils.hh" // IWYU pragma: keep (partial specialization of adl_serialiser)
 #include "nix/cmd/common-eval-args.hh"
 #include "nix/fetchers/fetch-settings.hh"
 #include "nix/util/args/root.hh"
@@ -113,8 +114,6 @@ static void disableNet()
     if (!fileTransferSettings.connectTimeout.overridden)
         fileTransferSettings.connectTimeout = 1;
 }
-
-std::string programPath;
 
 struct NixArgs : virtual MultiCommand, virtual MixCommonArgs, virtual RootArgs
 {
@@ -283,31 +282,35 @@ static void showHelp(std::vector<std::string> subcommand, NixArgs & toplevel)
     auto vGenerateManpage = state.allocValue();
     state.eval(
         state.parseExprFromString(
-#include "generate-manpage.nix.gen.hh"
-            , state.rootPath(CanonPath::root)),
+            {
+#embed "doc/manual/generate-manpage.nix"
+            },
+            state.rootPath(CanonPath::root)),
         *vGenerateManpage);
 
     state.corepkgsFS->addFile(
         CanonPath("utils.nix"),
-#include "utils.nix.gen.hh"
-    );
+        {
+#embed "doc/manual/utils.nix"
+        });
 
     state.corepkgsFS->addFile(
         CanonPath("/generate-settings.nix"),
-#include "generate-settings.nix.gen.hh"
-    );
+        {
+#embed "doc/manual/generate-settings.nix"
+        });
 
     state.corepkgsFS->addFile(
         CanonPath("/generate-store-info.nix"),
-#include "generate-store-info.nix.gen.hh"
-    );
+        {
+#embed "doc/manual/generate-store-info.nix"
+        });
 
     auto vDump = state.allocValue();
     vDump->mkString(toplevel.dumpCli(), state.mem);
 
     auto vRes = state.allocValue();
-    Value * args[]{&state.getBuiltin("false"), vDump};
-    state.callFunction(*vGenerateManpage, args, *vRes, noPos);
+    state.callFunction(*vGenerateManpage, std::to_array({&state.getBuiltin("false"), vDump}), *vRes, noPos);
 
     auto attr = vRes->attrs()->get(state.symbols.create(mdName + ".md"));
     if (!attr)
@@ -374,9 +377,9 @@ struct CmdHelpStores : Command
 
     std::string doc() override
     {
-        return
-#include "help-stores.md.gen.hh"
-            ;
+        return {
+#embed "help-stores.md"
+        };
     }
 
     Category category() override
@@ -535,8 +538,7 @@ void mainWrapped(int argc, char ** argv)
         tryEnterPrivateMountNamespace();
 #endif
 
-    programPath = argv[0];
-    auto programName = std::string(baseNameOf(programPath));
+    auto programName = std::string(baseNameOf(argv[0]));
     auto extensionPos = programName.find_last_of(".");
     if (extensionPos != std::string::npos)
         programName.erase(extensionPos);
@@ -609,7 +611,7 @@ void mainWrapped(int argc, char ** argv)
             b["args"] = primOp->args;
             b["doc"] = trim(stripIndentation(*primOp->doc));
             if (primOp->experimentalFeature)
-                b["experimental-feature"] = primOp->experimentalFeature;
+                b["experimental-feature"] = *primOp->experimentalFeature;
             builtinsJson.emplace(state.symbols[builtin.name], std::move(b));
         }
         for (auto & [name, info] : state.constantInfos) {

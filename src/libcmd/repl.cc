@@ -26,6 +26,7 @@
 #include "nix/util/finally.hh"
 #include "nix/cmd/markdown.hh"
 #include "nix/store/local-fs-store.hh"
+#include "nix/store/build.hh"
 #include "nix/expr/print.hh"
 #include "nix/util/ref.hh"
 #include "nix/expr/value.hh"
@@ -66,7 +67,7 @@ struct NixRepl : AbstractNixRepl, detail::ReplCompleterMixin, gc
     Strings loadedFlakes;
     fun<AnnotatedValues()> getValues;
 
-    const static int envSize = 32768;
+    static const int envSize = 32768;
     std::shared_ptr<StaticEnv> staticEnv;
     std::optional<Value> lastLoaded;
     Env * env;
@@ -549,7 +550,7 @@ ProcessLineResult NixRepl::processLine(std::string line)
         std::string drvPathRaw = state->store->printStorePath(drvPath);
 
         if (command == ":b" || command == ":bl") {
-            state->store->buildPaths({
+            state->store->getBuilder()->buildPaths({
                 DerivedPath::Built{
                     .drvPath = makeConstantStorePathRef(drvPath),
                     .outputs = OutputsSpec::All{},
@@ -723,8 +724,11 @@ void NixRepl::loadFlake(const std::string & flakeRefS)
         throw SystemError(e.code(), "cannot determine current working directory");
     }
 
-    auto flakeRef = parseFlakeRef(fetchSettings, flakeRefS, cwd.string(), true);
-    if (evalSettings.pureEval && !flakeRef.input.isLocked(fetchSettings))
+    const auto & fetchSettings = state->fetchSettings;
+    const bool isPureEval = state->settings.pureEval;
+
+    auto flakeRef = parseFlakeRef(flakeRefS, cwd.string(), true);
+    if (isPureEval && !flakeRef.input.isLocked(fetchSettings))
         throw Error("cannot use ':load-flake' on unlocked flake reference '%s' (use --impure to override)", flakeRefS);
 
     Value v;
@@ -737,8 +741,8 @@ void NixRepl::loadFlake(const std::string & flakeRefS)
             flakeRef,
             flake::LockFlags{
                 .updateLockFile = false,
-                .useRegistries = !evalSettings.pureEval,
-                .allowUnlocked = !evalSettings.pureEval,
+                .useRegistries = !isPureEval,
+                .allowUnlocked = !isPureEval,
             }),
         v);
     addAttrsToScope(v);

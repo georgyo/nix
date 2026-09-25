@@ -15,6 +15,7 @@ namespace nix {
 
 struct GitRepo;
 struct SrcToStore;
+struct GitRepoPool;
 
 } // namespace nix
 
@@ -165,6 +166,7 @@ struct Settings : public Config
 
     const ref<SrcToStore> srcToStore = createSrcToStore();
 
+    ref<GitRepoPool> getTarballWriterPool() const;
 
 private:
     void anchor() override;

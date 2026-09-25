@@ -3,6 +3,7 @@
 #include "nix/util/logging.hh"
 #include "nix/store/build-result.hh"
 #include "nix/store/derivations.hh"
+#include "nix/store/derivation/aterm.hh"
 
 namespace nix {
 
@@ -15,18 +16,22 @@ WorkerProto::BasicClientConnection::~BasicClientConnection()
     }
 }
 
-static Logger::Fields readFields(Source & from)
+static auto readFields(Source & from)
 {
-    Logger::Fields fields;
+    std::vector<Logger::Field> fields;
     size_t size = readInt(from);
     for (size_t n = 0; n < size; n++) {
         auto type = readInt(from);
-        if (type == 0)
+        switch (type) {
+        case 0:
             fields.push_back(readNum<uint64_t>(from));
-        else if (type == 1)
+            break;
+        case 1:
             fields.push_back(readString(from));
-        else
+            break;
+        default:
             throw Error("got unsupported field type %x from Nix daemon", (int) type);
+        }
     }
     return fields;
 }
@@ -78,7 +83,7 @@ WorkerProto::BasicClientConnection::processStderrReturn(Sink * sink, Source * so
 
         else if (msg == STDERR_START_ACTIVITY) {
             auto act = readNum<ActivityId>(from);
-            auto lvl = (Verbosity) readInt(from);
+            auto lvl = verbosityFromIntClamped(readInt(from));
             auto type = (ActivityType) readInt(from);
             auto s = readString(from);
             auto fields = readFields(from);
@@ -312,7 +317,7 @@ void WorkerProto::BasicClientConnection::putBuildDerivationRequest(
 {
     startOp(WorkerProto::Op::BuildDerivation);
     to << store.printStorePath(drvPath);
-    writeDerivation(to, store, drv);
+    derivation::write(to, store, drv);
     to << buildMode;
 }
 

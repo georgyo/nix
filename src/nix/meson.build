@@ -151,9 +151,11 @@ nix_sources = [ config_priv_h ] + files(
   'store-gc.cc',
   'store-info.cc',
   'store-repair.cc',
+  'store-submit-output.cc',
   'store.cc',
   'upgrade-nix.cc',
   'verify.cc',
+  'version.cc',
   'why-depends.cc',
 )
 
@@ -165,14 +167,9 @@ if host_machine.system() != 'windows'
 endif
 
 nix_sources += [
-  gen_header.process('doc/manual/generate-manpage.nix'),
-  gen_header.process('doc/manual/generate-settings.nix'),
-  gen_header.process('doc/manual/generate-store-info.nix'),
-  gen_header.process('doc/manual/utils.nix'),
-  gen_header.process('get-env.sh'),
+  # TODO: Get rid of this for good. It's used in profile.md with
+  # string literal concatenation.
   gen_header.process('profiles.md'),
-  gen_header.process('help-stores.md'),
-  gen_header.process('baked-flake.nix'),
 ]
 
 # The rest of the subdirectories aren't separate components,
@@ -233,7 +230,7 @@ include_dirs = [ include_directories('.') ]
 this_exe = executable(
   meson.project_name(),
   sources,
-  dependencies : deps_private_subproject + deps_private + deps_other + deps_plugin_c_apis,
+  dependencies : deps_private_subproject + deps_private + deps_private_no_pkgconfig + deps_plugin_c_apis,
   include_directories : include_dirs,
   link_args : linker_export_flags + (
     sentry_required.enabled() ? [ '-lsentry' ] : []

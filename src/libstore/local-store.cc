@@ -1,5 +1,7 @@
 #include "nix/store/local-store.hh"
+#include "nix/store/build.hh"
 #include "nix/store/globals.hh"
+#include "nix/store/path-references.hh"
 #include "nix/util/git.hh"
 #include "nix/util/archive.hh"
 #include "nix/store/pathlocks.hh"
@@ -35,6 +37,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <time.h>
+#include <variant>
 
 #ifndef _WIN32
 #  include <grp.h>
@@ -139,6 +142,7 @@ struct LocalStore::State::Stmts
     SQLiteStmt AddDerivationOutput;
     SQLiteStmt RegisterRealisedOutput;
     SQLiteStmt UpdateRealisedOutput;
+    SQLiteStmt DeleteRealisedOutputByName;
     SQLiteStmt QueryValidDerivers;
     SQLiteStmt QueryDerivationOutputs;
     SQLiteStmt QueryRealisedOutput;
@@ -426,6 +430,15 @@ LocalStore::LocalStore(ref<const Config> config)
                     outputName = ?
                 ;
             )");
+        state->stmts->DeleteRealisedOutputByName.create(
+            state->db,
+            R"(
+                delete from BuildTraceV3
+                where
+                    drvPath = ? and
+                    outputName = ?
+                ;
+            )");
         state->stmts->QueryRealisedOutput.create(
             state->db,
             R"(
@@ -609,10 +622,9 @@ void LocalStore::openDB(State & state, bool create)
 
     /* Initialise the database schema, if necessary. */
     if (create) {
-        static const char schema[] =
-#include "schema.sql.gen.hh"
-            ;
-        db.exec(schema);
+        db.exec({
+#embed "schema.sql"
+        });
     }
 }
 
@@ -655,11 +667,13 @@ void LocalStore::upgradeDBSchema(State & state, bool isNew)
         schemaMigrations.insert(migrationName);
     };
 
-    if (experimentalFeatureSettings.isEnabled(Xp::CaDerivations))
+    if (experimentalFeatureSettings.isEnabled(Xp::CaDerivations)) {
         doUpgrade(
             "20251017-ca-derivations",
-#include "ca-specific-schema.sql.gen.hh"
-        );
+            {
+#embed "ca-specific-schema.sql"
+            });
+    }
 
     doUpgrade("20260309-drop-redundant-indexreferrer", "drop index if exists IndexReferrer");
 
@@ -682,13 +696,13 @@ void LocalStore::registerDrvOutput(const Realisation & info, CheckSigsFlag check
 {
     experimentalFeatureSettings.require(Xp::CaDerivations);
     if (checkSigs == NoCheckSigs || !realisationIsUntrusted(info))
-        registerDrvOutput(info);
+        registerDrvOutputUnchecked(info);
     else
         throw Error(
             "cannot register realisation '%s' because it lacks a signature by a trusted key", info.outPath.to_string());
 }
 
-void LocalStore::registerDrvOutput(const Realisation & info)
+void LocalStore::registerDrvOutputUnchecked(const Realisation & info)
 {
     experimentalFeatureSettings.require(Xp::CaDerivations);
     retrySQLite<void>([&]() {
@@ -720,6 +734,19 @@ void LocalStore::registerDrvOutput(const Realisation & info)
                 .apply(concatStringsSep(" ", Signature::toStrings(info.signatures)))
                 .exec();
         }
+    });
+}
+
+void LocalStore::deleteBuildTraces(const std::set<DrvOutput> & keys)
+{
+    experimentalFeatureSettings.require(Xp::CaDerivations);
+    retrySQLite<void>([&]() {
+        auto state(_state->lock());
+        SQLiteTxn txn(state->db);
+        for (const auto & key : keys) {
+            state->stmts->DeleteRealisedOutputByName.use().apply(key.drvPath.to_string()).apply(key.outputName).exec();
+        }
+        txn.commit();
     });
 }
 
@@ -774,9 +801,9 @@ uint64_t LocalStore::addValidPath(State & state, const ValidPathInfo & info)
            derivations).  Note that if this throws an error, then the
            DB transaction is rolled back, so the path validity
            registration above is undone. */
-        parsedDrv.checkInvariants(*this, info.path);
+        checkInvariants(parsedDrv, *this, info.path);
 
-        for (auto & i : parsedDrv.outputsAndOptPaths(*this)) {
+        for (auto & i : outputsAndOptPaths(parsedDrv, *this)) {
             /* Floating CA derivations have indeterminate output paths until
                they are built, so don't register anything in that case */
             if (i.second.second)
@@ -784,8 +811,9 @@ uint64_t LocalStore::addValidPath(State & state, const ValidPathInfo & info)
         }
     }
 
-    pathInfoCache->lock()->upsert(
-        info.path, PathInfoCacheValue{.value = std::make_shared<const LocalStorePathInfo>(info, id)});
+    if (pathInfoCache)
+        pathInfoCache->lock()->upsert(
+            info.path, PathInfoCacheValue{.value = std::make_shared<const LocalStorePathInfo>(info, id)});
 
     return id;
 }
@@ -872,7 +900,7 @@ void LocalStore::updatePathInfo(State & state, const ValidPathInfo & info)
 uint64_t LocalStore::queryValidPathId(State & state, const StorePath & path)
 {
     /* Avoid a database query if the id is in `pathInfoCache`. */
-    {
+    if (pathInfoCache) {
         auto cache(pathInfoCache->lock());
         if (auto res = cache->getOrNullptr(path))
             if (auto info = dynamic_cast<const LocalStorePathInfo *>(res->value.get()))
@@ -1139,8 +1167,9 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
     HashSink hashSink(HashAlgorithm::SHA256);
 
     TeeSource wrapperSource{source, hashSink};
+    auto canonicalisingRestoreHooks = makeCanonicalisingRestoreHooks(NIX_WHEN_SUPPORT_ACLS2(localSettings.ignoredAcls));
 
-    restorePath(realPath, wrapperSource, localSettings.fsyncStorePaths);
+    restorePath(realPath, wrapperSource, localSettings.fsyncStorePaths, canonicalisingRestoreHooks.get());
 
     auto hashResult = hashSink.finish();
 
@@ -1167,7 +1196,7 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
             switch (fim) {
             case FileIngestionMethod::Flat:
             case FileIngestionMethod::NixArchive: {
-                HashModuloSink caSink{
+                MaskedHashSink caSink{
                     specified.hash.algo,
                     std::string{info.path.hashPart()},
                 };
@@ -1192,8 +1221,6 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
                 actualHash.hash.to_string(HashFormat::Nix32, true));
         }
     }
-
-    canonicalisePathMetaData(realPath, {NIX_WHEN_SUPPORT_ACLS(localSettings.ignoredAcls)});
 
     optimisePath(realPath, repair); // FIXME: combine with hashPath()
 
@@ -1398,9 +1425,30 @@ StorePath LocalStore::addToStoreFromDump(
     RepairFlag repair,
     std::shared_ptr<const Provenance> provenance)
 {
+    return addToStoreFromDump(source0, name, dumpMethod, hashMethod, hashAlgo, references, repair, false, provenance);
+}
+
+StorePath LocalStore::addToStoreFromDump(
+    Source & source0,
+    std::string_view name,
+    FileSerialisationMethod dumpMethod,
+    ContentAddressMethod hashMethod,
+    HashAlgorithm hashAlgo,
+    const StorePathSet & originalReferences,
+    RepairFlag repair,
+    bool filterReferences,
+    std::shared_ptr<const Provenance> provenance)
+{
     /* For computing the store path. */
-    auto hashSink = std::make_unique<HashSink>(hashAlgo);
-    TeeSource source{source0, *hashSink};
+    auto hashSink = std::make_shared<HashSink>(hashAlgo);
+    std::shared_ptr<Sink> sink = hashSink;
+    std::optional<PathRefScanSink> refSink = std::nullopt;
+    if (filterReferences) {
+        // Only scan if we really need to, since it's slower.
+        refSink = PathRefScanSink::fromPaths(originalReferences);
+        sink = std::make_shared<TeeSink>(*hashSink, *refSink);
+    }
+    TeeSource source{source0, *sink};
     const LocalSettings & localSettings = config->getLocalSettings();
 
     /* Read the source path into memory, but only if it's up to
@@ -1411,38 +1459,35 @@ StorePath LocalStore::addToStoreFromDump(
        path. */
     bool inMemory = false;
 
-    struct Free
-    {
-        void operator()(void * v)
-        {
-            free(v);
-        }
-    };
-
-    std::unique_ptr<char, Free> dumpBuffer(nullptr);
-    std::string_view dump;
+    /* Because std::string has resize_and_overwrite. */
+    std::string dump;
 
     /* Fill out buffer, and decide whether we are working strictly in
        memory based on whether we break out because the buffer is full
        or the original source is empty */
     while (dump.size() < localSettings.narBufferSize) {
-        auto oldSize = dump.size();
+        const auto oldSize = dump.size();
         constexpr size_t chunkSize = 65536;
         auto want = std::min(chunkSize, localSettings.narBufferSize - oldSize);
-        if (auto tmp = realloc(dumpBuffer.get(), oldSize + want)) {
-            dumpBuffer.release();
-            dumpBuffer.reset((char *) tmp);
-        } else {
-            outOfMemory();
-        }
-        auto got = 0;
-        Finally cleanup([&]() { dump = {dumpBuffer.get(), dump.size() + got}; });
-        try {
-            got = source.read(dumpBuffer.get() + oldSize, want);
-        } catch (EndOfFile &) {
-            inMemory = true;
+        std::exception_ptr ex;
+        dump.resize_and_overwrite(
+            oldSize + want,
+            [&inMemory, &source, &ex, sz = oldSize](char * buf, std::size_t bufSize) -> std::string::size_type {
+                try {
+                    auto got = source.read(buf + sz, bufSize - sz);
+                    return sz + got;
+                } catch (EndOfFile &) {
+                    inMemory = true;
+                    return sz;
+                } catch (...) {
+                    ex = std::current_exception();
+                    return sz;
+                }
+            });
+        if (ex)
+            std::rethrow_exception(ex);
+        if (inMemory)
             break;
-        }
     }
 
     std::unique_ptr<AutoDelete> delTempDir;
@@ -1453,8 +1498,11 @@ StorePath LocalStore::addToStoreFromDump(
     bool methodsMatch = static_cast<FileIngestionMethod>(dumpMethod) == hashMethod.getFileIngestionMethod();
 
     /* If the methods don't match, our streaming hash of the dump is the
-       wrong sort, and we need to rehash. */
-    bool inMemoryAndDontNeedRestore = inMemory && methodsMatch;
+       wrong sort, and we need to rehash.
+       References are also in store path, if scanning we will need to move */
+    bool inMemoryAndDontNeedRestore = inMemory && methodsMatch && !filterReferences;
+    auto canonicalisingRestoreHooks =
+        makeCanonicalisingRestoreHooks(NIX_WHEN_SUPPORT_ACLS2(config->getLocalSettings().ignoredAcls));
 
     if (!inMemoryAndDontNeedRestore) {
         /* Drain what we pulled so far, and then keep on pulling */
@@ -1465,13 +1513,19 @@ StorePath LocalStore::addToStoreFromDump(
         delTempDir = std::make_unique<AutoDelete>(tempDir);
         tempPath = tempDir / "x";
 
-        restorePath(tempPath, bothSource, dumpMethod, localSettings.fsyncStorePaths);
+        restorePath(tempPath, bothSource, dumpMethod, localSettings.fsyncStorePaths, canonicalisingRestoreHooks.get());
 
-        dumpBuffer.reset();
-        dump = {};
+        std::string().swap(dump);
     }
 
     auto [dumpHash, size] = hashSink->finish();
+
+    StorePathSet references;
+    if (refSink.has_value()) {
+        references = refSink->getResultPaths();
+    } else {
+        references = originalReferences;
+    }
 
     auto desc = ContentAddressWithReferences::fromParts(
         hashMethod,
@@ -1510,7 +1564,12 @@ StorePath LocalStore::addToStoreFromDump(
                 switch (fim) {
                 case FileIngestionMethod::Flat:
                 case FileIngestionMethod::NixArchive:
-                    restorePath(realPath, dumpSource, (FileSerialisationMethod) fim, localSettings.fsyncStorePaths);
+                    restorePath(
+                        realPath,
+                        dumpSource,
+                        (FileSerialisationMethod) fim,
+                        localSettings.fsyncStorePaths,
+                        canonicalisingRestoreHooks.get());
                     break;
                 case FileIngestionMethod::Git:
                     // doesn't correspond to serialization method, so
@@ -1519,7 +1578,23 @@ StorePath LocalStore::addToStoreFromDump(
                 }
             } else {
                 /* Move the temporary path we restored above. */
-                moveFile(tempPath, realPath);
+                try {
+                    /* movePath and not renameFile because at this point the top-level directory is
+                       read-only. */
+                    movePath(tempPath, realPath);
+                } catch (const SystemError & e) {
+                    if (!e.is(std::errc::cross_device_link))
+                        throw;
+
+                    /* Apparently this can happen even on the same filesystem (and the paths that are renamed above
+                       are on the same filesystem) with overlayfs https://github.com/NixOS/nix/issues/6262.
+                       Since we couldn't rename, this won't be atomic and we have to gradually copy to the realPath. */
+                    warn("can't rename %s as %s, copying instead", PathFmt(tempPath), PathFmt(realPath));
+                    RestoreSink copySink{/*startFsync=*/false, /*hooks=*/canonicalisingRestoreHooks.get()};
+                    copySink.dstPath = realPath;
+                    copyRecursive(*makeFSSourceAccessor(tempPath), CanonPath::root, copySink, CanonPath::root);
+                    delTempDir->deletePath();
+                }
             }
 
             /* For computing the nar hash. In recursive SHA-256 mode, this
@@ -1530,9 +1605,6 @@ StorePath LocalStore::addToStoreFromDump(
                 dumpPath(realPath, narSink);
                 narHash = narSink.finish();
             }
-
-            canonicalisePathMetaData(
-                realPath, {NIX_WHEN_SUPPORT_ACLS(localSettings.ignoredAcls)}); // FIXME: merge into restorePath
 
             optimisePath(realPath, repair);
 
@@ -1661,7 +1733,7 @@ bool LocalStore::verifyStore(bool checkContents, RepairFlag repair)
                         info->narHash.to_string(HashFormat::Nix32, true),
                         current.hash.to_string(HashFormat::Nix32, true));
                     if (repair)
-                        repairPath(i);
+                        getBuilder()->repairPath(i);
                     else
                         errors = true;
                 } else {
@@ -1775,7 +1847,7 @@ void LocalStore::verifyPath(
             printError("path '%s' disappeared, but it still has valid referrers!", pathS);
             if (repair)
                 try {
-                    repairPath(path);
+                    getBuilder()->repairPath(path);
                 } catch (Error & e) {
                     logWarning(e.info());
                     errors = true;

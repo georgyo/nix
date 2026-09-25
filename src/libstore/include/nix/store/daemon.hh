@@ -6,9 +6,17 @@
 
 #include <functional>
 
-namespace nix::daemon {
+namespace nix {
 
-enum RecursiveFlag : bool { NotRecursive = false, Recursive = true };
+struct Builder;
+
+namespace daemon {
+
+enum struct RecursiveFlag {
+    NotRecursive = 0,
+    Recursive = 1,
+    RecursiveSubmitted = 2,
+};
 
 /**
  * Serve a client on the given file descriptors.
@@ -25,6 +33,9 @@ void processConnection(
     FdSink && to,
     TrustedFlag trusted,
     RecursiveFlag recursive,
+    std::shared_ptr<Builder> builder = nullptr,
     std::function<void(std::string_view traceparent)> setupTelemetry = {});
 
-} // namespace nix::daemon
+} // namespace daemon
+
+} // namespace nix

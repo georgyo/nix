@@ -48,8 +48,10 @@ sources = files(
   'indirect.cc',
   'input-cache.cc',
   'mercurial.cc',
+  'merkle-tar-adapter.cc',
   'path.cc',
   'provenance.cc',
+  'register-library-versions.cc',
   'registry.cc',
   'tarball.cc',
 )
@@ -69,7 +71,8 @@ subdir('nix-meson-build-support/windows-version')
 this_library = library(
   'nixfetchers',
   sources,
-  dependencies : deps_public + deps_private + deps_other,
+  soversion : nix_soversion,
+  dependencies : deps_public + deps_private + deps_public_no_pkgconfig + deps_private_no_pkgconfig,
   include_directories : include_dirs,
   link_args : linker_export_flags,
   prelink : prelink, # For C++ static initializers

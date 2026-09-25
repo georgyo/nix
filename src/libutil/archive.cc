@@ -140,9 +140,9 @@ void dumpString(std::string_view s, Sink & sink)
 }
 
 template<typename... Args>
-static SerialisationError badArchive(std::string_view s, const Args &... args)
+static SerialisationError badArchive(std::string_view s, Args &&... args)
 {
-    return SerialisationError("bad archive: " + s, args...);
+    return SerialisationError("bad archive: " + s, std::forward<Args>(args)...);
 }
 
 static void parseContents(CreateRegularFileSink & sink, Source & source)
@@ -307,9 +307,9 @@ void parseDump(FileSystemObjectSink & sink, Source & source)
     parse(sink, source, CanonPath::root, 0);
 }
 
-void restorePath(const std::filesystem::path & path, Source & source, bool startFsync)
+void restorePath(const std::filesystem::path & path, Source & source, bool startFsync, RestoreSinkHooks * hooks)
 {
-    RestoreSink sink{startFsync};
+    RestoreSink sink{startFsync, hooks};
     sink.dstPath = path;
     parseDump(sink, source);
 }

@@ -37,11 +37,14 @@ nixMake.mkComponent {
       NIX_ASAN_ENABLED = 0;
     };
     "util-config-private.hh" = {
+      HAVE_BINDAT = 0;
+      HAVE_CONNECTAT = 0;
       HAVE_LIBCPUID = 1;
       HAVE_POSIX_FALLOCATE = 1;
     };
     "unix/util-unix-config-private.hh" = {
       HAVE_CLOSE_RANGE = 1;
+      HAVE_CLOSEFROM = 1;
       HAVE_COPY_FILE_RANGE = 1;
       HAVE_DECL_AT_SYMLINK_NOFOLLOW = 1;
       HAVE_F_GETPATH = 0;

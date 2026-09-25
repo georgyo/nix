@@ -49,7 +49,8 @@ subdir('nix-meson-build-support/windows-version')
 build_both_libraries = get_option('plugin-c-api')
 
 library_kwargs = {
-  'dependencies' : deps_public + deps_private + deps_other,
+  'soversion' : nix_soversion,
+  'dependencies' : deps_public + deps_private + deps_public_no_pkgconfig + deps_private_no_pkgconfig,
   'include_directories' : include_dirs,
   'link_args' : linker_export_flags,
   'install' : true,

@@ -18,16 +18,16 @@ scope: {
 
   mimalloc =
     (
-      if lib.versionAtLeast pkgs.mimalloc.version "3.3.2" then
+      if lib.versionAtLeast pkgs.mimalloc.version "3.5.1" then
         pkgs.mimalloc
       else
         pkgs.mimalloc.overrideAttrs rec {
-          version = "3.3.2";
+          version = "3.5.1";
           src = pkgs.fetchFromGitHub {
             owner = "microsoft";
             repo = "mimalloc";
             tag = "v${version}";
-            hash = "sha256-GZ37qQVDe9jgMb4Coe5oKvgaLTspZDlSkS5rdy1MfUU=";
+            hash = "sha256-hljle/jR2hNvy2ikdOna9QZiyqzAuMjNUfC7vxl7g7k=";
           };
         }
     ).overrideAttrs
@@ -215,6 +215,34 @@ scope: {
       meta = builtins.removeAttrs prevAttrs.meta [ "changelog" ];
     }
   );
+
+  # Force the s2n TLS backend in aws-c-io on macOS; Apple SecureTransport is not
+  # fork-safe and crashes daemon workers (NixOS/nix#15857). Override it across
+  # the whole aws-c-* stack so one aws-c-io is shared.
+  aws-crt-cpp =
+    if !stdenv.hostPlatform.isDarwin then
+      pkgs.aws-crt-cpp
+    else
+      let
+        aws-c-io = pkgs.aws-c-io.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [ ./patches/aws-c-io-s2n-darwin.patch ];
+        });
+        aws-c-http = pkgs.aws-c-http.override { inherit aws-c-io; };
+        aws-c-auth = pkgs.aws-c-auth.override { inherit aws-c-io aws-c-http; };
+        aws-c-event-stream = pkgs.aws-c-event-stream.override { inherit aws-c-io; };
+        aws-c-mqtt = pkgs.aws-c-mqtt.override { inherit aws-c-io aws-c-http; };
+        aws-c-s3 = pkgs.aws-c-s3.override { inherit aws-c-io aws-c-http aws-c-auth; };
+      in
+      pkgs.aws-crt-cpp.override {
+        inherit
+          aws-c-io
+          aws-c-http
+          aws-c-auth
+          aws-c-event-stream
+          aws-c-mqtt
+          aws-c-s3
+          ;
+      };
 
   # TODO Hack until https://github.com/NixOS/nixpkgs/issues/45462 is fixed.
   boost =

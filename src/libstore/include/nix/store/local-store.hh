@@ -311,7 +311,21 @@ public:
         HashAlgorithm hashAlgo,
         const StorePathSet & references,
         RepairFlag repair,
-        std::shared_ptr<const Provenance> provenance) override;
+        std::shared_ptr<const Provenance> provenance = nullptr) override;
+
+    // Designed to be used from RestrictedStore,
+    // allows filtering the references while scanning.
+    // Not an entirely separate function in order to reduce duplication
+    StorePath addToStoreFromDump(
+        Source & dump,
+        std::string_view name,
+        FileSerialisationMethod dumpMethod,
+        ContentAddressMethod hashMethod,
+        HashAlgorithm hashAlgo,
+        const StorePathSet & references,
+        RepairFlag repair,
+        bool filterReferences,
+        std::shared_ptr<const Provenance> provenance = nullptr);
 
     void addTempRoots(const StorePathSet & paths, bool skipIfSlow) override;
 
@@ -380,6 +394,8 @@ public:
     Roots findRoots(bool censor) override;
 
     void collectGarbage(const GCOptions & options, GCResults & results) override;
+
+    void deleteBuildTraces(const std::set<DrvOutput> & keys) override;
 
     /**
      * Called by `collectGarbage` to trace in reverse.
@@ -475,7 +491,7 @@ public:
      * Register the store path 'output' as the output named 'outputName' of
      * derivation 'deriver'.
      */
-    void registerDrvOutput(const Realisation & info) override;
+    void registerDrvOutputUnchecked(const Realisation & info) override;
     void registerDrvOutput(const Realisation & info, CheckSigsFlag checkSigs) override;
     void cacheDrvOutputMapping(
         State & state, const uint64_t deriver, const std::string & outputName, const StorePath & output);
@@ -551,7 +567,7 @@ private:
 
     void addBuildLog(const StorePath & drvPath, std::string_view log) override;
 
-    friend struct PathSubstitutionGoal;
+    friend class PathSubstitutionGoal;
     friend struct DerivationGoal;
     /* Only used for createTempDirInStore. */
     friend class DerivationBuilderImpl;

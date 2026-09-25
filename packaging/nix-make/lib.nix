@@ -53,7 +53,11 @@ let
   ]
   ++ (
     if config.compiler == "clang" then
-      [ "-Werror=c99-designator" ]
+      [
+        # Clang complains about #embed even though it's standard in C23.
+        "-Wno-c23-extensions"
+        "-Werror=c99-designator"
+      ]
     else
       [
         "-Wno-interference-size"
@@ -179,7 +183,8 @@ let
         unit.includes
         // lib.listToAttrs (
           map (g: lib.nameValuePair g component.allGenerated.${g}.path) unit.generatedIncludes
-        );
+        )
+        // (component.embeds.${unit.path} or { });
       srcPath = unit.path;
       includeDirs = component.includeDirs ++ component.depIncludeDirs;
       cxxFlags =
@@ -271,6 +276,11 @@ let
     - `extraCxxFlags`, `linkFlags`, `extraLinkLibs`: what they say.
     - `unitCxxFlags`: extra compiler flags for specific units, as an
       attribute set from path in the root namespace to a list of flags.
+    - `embeds`: the files that specific units pull in with `#embed`, which
+      the scanner does not follow. An attribute set from the unit's path in
+      the root namespace to an attribute set from path in the root
+      namespace (where the unit's `#embed` finds it, relative to the unit)
+      to the file.
 
     External dependencies (compile flags and libraries) are derived from
     the `#include`s of the units, via `deps.nix`.
@@ -304,6 +314,7 @@ let
       undefines ? [ ],
       extraCxxFlags ? [ ],
       unitCxxFlags ? { },
+      embeds ? { },
       linkFlags ? [ ],
       extraLinkLibs ? [ ],
     }@args:
@@ -443,6 +454,7 @@ let
           publicIncludeDirs
           extraCxxFlags
           unitCxxFlags
+          embeds
           linkFlags
           extraLinkLibs
           ;

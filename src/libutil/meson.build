@@ -31,10 +31,20 @@ check_funcs = [
     'posix_fallocate',
     'Optionally used to preallocate files to be large enough before writing to them.',
   ],
+  [
+    'bindat',
+    'Avoids forking when binding AF_UNIX sockets with paths longer than sun_path.',
+    '#include <sys/socket.h>',
+  ],
+  [
+    'connectat',
+    'Avoids forking when connecting AF_UNIX sockets with paths longer than sun_path.',
+    '#include <sys/socket.h>',
+  ],
 ]
 foreach funcspec : check_funcs
   define_name = 'HAVE_' + funcspec[0].underscorify().to_upper()
-  define_value = cxx.has_function(funcspec[0]).to_int()
+  define_value = cxx.has_function(funcspec[0], prefix : funcspec.get(2, '')).to_int()
   configdata_priv.set(define_name, define_value, description : funcspec[1])
 endforeach
 
@@ -53,12 +63,18 @@ configdata_pub.set(
 subdir('nix-meson-build-support/libatomic')
 
 if host_machine.system() == 'windows'
+  # Boost.Asio, included by the public `async.hh`, needs Winsock
+  # unconditionally, so consumers must link it too.
   socket = cxx.find_library('ws2_32')
-  deps_other += socket
+  deps_public_no_pkgconfig += socket
+  # `NtCreateFile` and `RtlNtStatusToDosError`, used by the `*at`-style file
+  # system functions in `windows/file-system-at.cc`, live here.
+  nt = cxx.find_library('ntdll')
+  deps_private_no_pkgconfig += nt
 elif host_machine.system() == 'sunos'
   socket = cxx.find_library('socket')
   network_service_library = cxx.find_library('nsl')
-  deps_other += [ socket, network_service_library ]
+  deps_private_no_pkgconfig += [ socket, network_service_library ]
 endif
 
 blake3 = dependency(
@@ -79,9 +95,8 @@ boost = dependency(
   include_type : 'system',
   version : '>=1.87.0',
 )
-# boost is a public dependency, but not a pkg-config dependency unfortunately, so we
-# put in `deps_other`.
-deps_other += boost
+# boost is a public dependency, but not a pkg-config dependency unfortunately.
+deps_public_no_pkgconfig += boost
 
 openssl = dependency(
   'libcrypto',
@@ -137,7 +152,7 @@ config_priv_h = configure_file(
 subdir('nix-meson-build-support/common')
 
 if have_cxa_throw
-  deps_other += cxa_throw_dep
+  deps_private_no_pkgconfig += cxa_throw_dep
 endif
 
 sources = [ config_priv_h ] + files(
@@ -171,6 +186,7 @@ sources = [ config_priv_h ] + files(
   'hash.cc',
   'hilite.cc',
   'json-utils.cc',
+  'library-versions.cc',
   'logging.cc',
   'memory-source-accessor.cc',
   'memory-source-accessor/json.cc',
@@ -183,6 +199,7 @@ sources = [ config_priv_h ] + files(
   'posix-source-accessor.cc',
   'processes.cc',
   'provenance.cc',
+  'register-library-versions.cc',
   'serialise.cc',
   'signature/local-keys.cc',
   'signature/signer.cc',
@@ -230,7 +247,8 @@ subdir('nix-meson-build-support/windows-version')
 this_library = library(
   'nixutil',
   sources,
-  dependencies : deps_public + deps_private + deps_other,
+  soversion : nix_soversion,
+  dependencies : deps_public + deps_private + deps_public_no_pkgconfig + deps_private_no_pkgconfig,
   include_directories : include_dirs,
   link_args : linker_export_flags,
   prelink : prelink, # For C++ static initializers
@@ -240,11 +258,14 @@ this_library = library(
 
 install_headers(headers, subdir : 'nix/util', preserve_path : true)
 
+libraries_public = []
 libraries_private = []
 if host_machine.system() == 'windows'
-  # `libraries_private` cannot contain ad-hoc dependencies (from
-  # `find_library), so we need to do this manually
-  libraries_private += [ '-lws2_32' ]
+  # The pkg-config `Libs` fields cannot contain ad-hoc dependencies (from
+  # `find_library`), so these are spelled out by hand. Winsock is public
+  # for the same reason as above: consumers of the headers need it too.
+  libraries_public += [ '-lws2_32' ]
+  libraries_private += [ '-lntdll' ]
 endif
 
 subdir('nix-meson-build-support/export')

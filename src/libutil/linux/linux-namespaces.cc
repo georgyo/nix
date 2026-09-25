@@ -3,6 +3,8 @@
 #include "nix/util/file-system.hh"
 #include "nix/util/processes.hh"
 
+#include "linux-namespaces-private.hh"
+
 #include <mutex>
 #include <sys/resource.h>
 
@@ -89,9 +91,9 @@ bool mountAndPidNamespacesSupported()
 
 //////////////////////////////////////////////////////////////////////
 
-static AutoCloseFD fdSavedMountNamespace;
-static AutoCloseFD fdSavedRoot;
-static bool havePrivateMountNs = false;
+AutoCloseFD fdSavedMountNamespace;
+AutoCloseFD fdSavedRoot;
+bool havePrivateMountNs = false;
 
 /* Save the current mount namespace so restoreMountNamespace() can return
    to it later. Ignored if called more than once. */
@@ -198,6 +200,8 @@ void restoreMountNamespace()
         /* Do not reset havePrivateMountNs! This code can run in a vfork-ed child and we absolutely
            must not trample any of the parent's state. */
     } catch (Error & e) {
+        /* TODO: Why are we swallowing errors? This can trivially lead to bugs like
+           https://github.com/NixOS/nix/issues/16246. Can we stop doing this?? */
         debug(e.msg());
     }
 }

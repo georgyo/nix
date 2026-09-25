@@ -1,6 +1,7 @@
 #include "nix/store/globals.hh"
 #include "nix/util/current-process.hh"
 #include "nix/util/executable-path.hh"
+#include "nix/util/library-versions.hh"
 #include "nix/main/shared.hh"
 #include "nix/store/store-api.hh"
 #include "nix/store/store-open.hh"
@@ -364,6 +365,10 @@ void printVersion(const std::string & programName)
         std::cout << "Store directory: " << resolveStoreConfig(StoreReference{settings.storeUri.get()})->storeDir
                   << "\n";
         std::cout << "State directory: " << os_string_to_string(settings.nixStateDir.native()) << "\n";
+        Strings libs;
+        for (auto & [name, version] : getLinkedLibraryVersions())
+            libs.push_back(fmt("%s %s", name, version));
+        std::cout << "Linked libraries: " << concatStringsSep(", ", libs) << "\n";
     }
     throw Exit();
 }
@@ -378,14 +383,17 @@ RunPager::RunPager()
     if (pager && ((std::string) pager == "" || (std::string) pager == "cat"))
         return;
 
+/* TODO re-enable on Windows, once a child can be given our pipe as its
+   stdin: `RunOptions` has no `standardIn`, and `spawnProcess` hardcodes a
+   null one. Printing unpaged beats failing the command. */
+#ifdef _WIN32
+    return;
+#else
     logger->stop();
 
     Pipe toPager;
     toPager.create();
 
-#ifdef _WIN32 // TODO re-enable on Windows, once we can start processes.
-    throw Error("Commit signature verification not implemented on Windows yet");
-#else
     pid = startProcess([&]() {
         if (dup2(toPager.readSide.get(), STDIN_FILENO) == -1)
             throw SysError("dupping stdin");
@@ -410,13 +418,14 @@ RunPager::RunPager()
 RunPager::~RunPager()
 {
     try {
-#ifndef _WIN32 // TODO re-enable on Windows, once we can start processes.
-        if (pid != -1) {
+        /* Never set on Windows, where we did not start a pager. */
+        if (pid) {
             std::cout.flush();
+#ifndef _WIN32 // `std_out` is a `HANDLE` there, which `dup2` does not take.
             dup2(std_out, STDOUT_FILENO);
+#endif
             pid.wait();
         }
-#endif
     } catch (...) {
         ignoreExceptionInDestructor();
     }

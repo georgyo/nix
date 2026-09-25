@@ -9,7 +9,7 @@ namespace nix {
 
 DerivationTrampolineGoal::DerivationTrampolineGoal(
     ref<const SingleDerivedPath> drvReq, const OutputsSpec & wantedOutputs, Worker & worker, BuildMode buildMode)
-    : Goal(worker, init())
+    : Goal(worker, haveToLoadFromStore())
     , drvReq(drvReq)
     , wantedOutputs(wantedOutputs)
     , buildMode(buildMode)
@@ -66,7 +66,14 @@ std::string DerivationTrampolineGoal::key()
     }.to_string(worker.store);
 }
 
-Goal::Co DerivationTrampolineGoal::init()
+Goal::Co DerivationTrampolineGoal::haveToLoadFromStore()
+{
+    auto [drvPath, drv] = co_await loadDerivation();
+    co_await haveDerivation(std::move(drvPath), std::move(drv));
+    unreachable(); /* Keep in mind that we *still* end coroutines early. */
+}
+
+Goal::BasicCo<std::pair<StorePath, Derivation>> DerivationTrampolineGoal::loadDerivation()
 {
     trace("need to load derivation from file");
 
@@ -128,7 +135,7 @@ Goal::Co DerivationTrampolineGoal::init()
         assert(false);
     }();
 
-    co_return haveDerivation(std::move(drvPath), std::move(drv));
+    co_return std::pair{std::move(drvPath), std::move(drv)};
 }
 
 Goal::Co DerivationTrampolineGoal::haveDerivation(StorePath drvPath, Derivation drv)
@@ -152,7 +159,7 @@ Goal::Co DerivationTrampolineGoal::haveDerivation(StorePath drvPath, Derivation 
 
     /* Short-circuit `builtin:substitute`. Since these are never actually built, just create substitution goals for the
      * outputs. */
-    if (drv.type() == DerivationType::Substituted{}) {
+    if (derivation::type(drv) == derivation::Type::Substituted{}) {
         struct OutputGoal
         {
             OutputName outputName;
@@ -231,12 +238,12 @@ Goal::Co DerivationTrampolineGoal::haveDerivation(StorePath drvPath, Derivation 
             auto exitCode = goal->exitCode;
             /* Note that without --keep-going waitees might be cancelled before
                we are woken up. */
-            return exitCode != ecBusy && exitCode != ecSuccess;
+            return exitCode && exitCode != ecSuccess;
         });
 
         const Goal * g = gi->get();
         assert(gi != concreteDrvGoals.end() && "expected a failing goal");
-        auto exitCode = g->exitCode;
+        auto exitCode = *g->exitCode;
         const auto * failure = g->buildResult.tryGetFailure();
         assert(failure && "failing goal does not report a failed build result");
 

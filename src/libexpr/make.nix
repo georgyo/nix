@@ -43,10 +43,12 @@ nixMake.mkComponent {
     "include"
   ];
 
-  files = nixMake.commonSupportFiles // {
-    "imported-drv-to-derivation.nix.gen.hh" = nixMake.mkStringHeader ./imported-drv-to-derivation.nix;
-    "fetchurl.nix.gen.hh" = nixMake.mkStringHeader ./fetchurl.nix;
-    "primops/derivation.nix.gen.hh" = nixMake.mkStringHeader ./primops/derivation.nix;
+  files = nixMake.commonSupportFiles;
+
+  embeds."eval.cc" = {
+    "imported-drv-to-derivation.nix" = ./imported-drv-to-derivation.nix;
+    "fetchurl.nix" = ./fetchurl.nix;
+    "primops/derivation.nix" = ./primops/derivation.nix;
   };
 
   generated = {

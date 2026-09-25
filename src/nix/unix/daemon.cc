@@ -9,6 +9,7 @@
 #include "nix/store/remote-store-connection.hh"
 #include "nix/store/store-open.hh"
 #include "nix/util/serialise.hh"
+#include "nix/util/strings.hh"
 #include "nix/store/globals.hh"
 #include "nix/util/config-global.hh"
 #include "nix/store/derivations.hh"
@@ -136,7 +137,8 @@ static ssize_t splice(int fd_in, void * off_in, int fd_out, void * off_out, size
 }
 #endif
 
-static unix::SelfPipe sigChldPipe;
+// The signal handler can run during static destruction; keep the pipe alive.
+static unix::SelfPipe & sigChldPipe = *new unix::SelfPipe;
 
 static void sigChldHandler(int sigNo)
 {
@@ -266,6 +268,7 @@ static void daemonLoop(
     std::optional<TrustedFlag> forceTrustClientOpt,
     std::filesystem::path socketPath)
 {
+    using namespace nix::unix;
     using namespace nix::daemon;
 
     if (chdir("/") == -1)
@@ -288,12 +291,32 @@ static void daemonLoop(
         auto rootCgroupPath = *cgroupFS / rootCgroup.rel();
         if (!pathExists(rootCgroupPath))
             throw Error("expected cgroup directory %s", PathFmt(rootCgroupPath));
-        auto daemonCgroupPath = rootCgroupPath + "/nix-daemon";
+        auto daemonCgroupPath = rootCgroupPath / "nix-daemon";
         //  Create new sub-cgroup for the daemon.
         if (mkdir(daemonCgroupPath.c_str(), 0755) != 0 && errno != EEXIST)
-            throw SysError("creating cgroup '%s'", daemonCgroupPath);
+            throw SysError("creating cgroup %s", PathFmt(daemonCgroupPath));
         //  Move daemon into the new cgroup.
-        writeFile(daemonCgroupPath + "/cgroup.procs", fmt("%d", getpid()));
+        writeFile(daemonCgroupPath / "cgroup.procs", fmt("%d", getpid()));
+
+        /* Now that the root cgroup has no processes, enable controllers
+           for the per-build sibling cgroups so they get memory/io stats. */
+        try {
+            auto available = tokenizeString<StringSet>(readFile(rootCgroupPath / "cgroup.controllers"));
+            Strings enable;
+            for (auto & c : {"cpu", "memory", "io", "pids"})
+                if (available.count(c))
+                    enable.push_back(fmt("+%s", c));
+            if (!enable.empty())
+                writeFile(rootCgroupPath / "cgroup.subtree_control", concatStringsSep(" ", enable));
+        } catch (SystemError & e) {
+            /* This is what we get when trying to violate the "no internal processes" rule. */
+            if (e.is(std::errc::device_or_resource_busy))
+                warn(
+                    "could not enable cgroup controllers because current cgroup (%s) is not process-free",
+                    PathFmt(rootCgroupPath));
+            else
+                warn("could not enable cgroup controllers for builds: %s", e.ec().message());
+        }
     }
 #endif
 
@@ -313,7 +336,7 @@ static void daemonLoop(
     static constexpr unsigned crashLimit = 64;
 
     try {
-        unix::serveUnixSocket(
+        serveUnixSocket(
             {
                 .socketPath = std::move(socketPath),
                 .socketMode = 0666,
@@ -341,21 +364,21 @@ static void daemonLoop(
                             }
 
                             if (crashCount >= crashLimit)
-                                throw unix::AbortServeSocket("too many daemon worker crashes (%1%)", crashLimit);
+                                throw AbortServeSocket("too many daemon worker crashes (%1%)", crashLimit);
                         }
                     },
             },
             [&](AutoCloseFD remote, std::function<void()> closeListeners) {
-                unix::closeOnExec(remote.get());
+                closeOnExec(remote.get());
 
-                unix::PeerInfo peer;
+                PeerInfo peer;
                 TrustedFlag trusted;
                 std::optional<std::string> userName;
 
                 if (forceTrustClientOpt)
                     trusted = *forceTrustClientOpt;
                 else {
-                    peer = unix::getPeerInfo(remote.get());
+                    peer = getPeerInfo(remote.get());
                     try {
                         auto [_trusted, _userName] = authPeer(peer);
                         trusted = _trusted;
@@ -378,7 +401,6 @@ static void daemonLoop(
                 options.errorPrefix = "unexpected Nix daemon error: ";
                 options.dieWithParent = false;
                 options.runExitHandlers = true;
-                options.allowVfork = false;
                 startProcess(
                     [&, storeConfig, closeListeners = std::move(closeListeners)]() {
                         setInterrupted(false);
@@ -407,6 +429,7 @@ static void daemonLoop(
                             FdSink(remote.get()),
                             trusted,
                             RecursiveFlag::NotRecursive,
+                            nullptr,
                             setupConnectionTelemetry);
 
                         /* End the connection span and export all
@@ -484,7 +507,8 @@ static void processStdioConnection(ref<Store> store, TrustedFlag trustClient)
         FdSource(STDIN_FILENO),
         FdSink(STDOUT_FILENO),
         trustClient,
-        daemon::NotRecursive,
+        daemon::RecursiveFlag::NotRecursive,
+        nullptr,
         setupConnectionTelemetry);
 }
 

@@ -53,6 +53,7 @@ sources = files(
   'json.cc',
   'lazy-fetcher-attr.cc',
   'main.cc',
+  'nix_api_eval.cc',
   'nix_api_expr.cc',
   'nix_api_external.cc',
   'nix_api_value.cc',
@@ -72,7 +73,7 @@ this_exe = executable(
   meson.project_name(),
   sources,
   config_priv_h,
-  dependencies : deps_private_subproject + deps_private + deps_other,
+  dependencies : deps_private_subproject + deps_private + deps_private_no_pkgconfig,
   include_directories : include_dirs,
   # TODO: -lrapidcheck, see ../libutil-support/build.meson
   link_args : linker_export_flags + [ '-lrapidcheck' ],
@@ -106,7 +107,7 @@ if get_option('benchmarks')
     'nix-expr-benchmarks',
     benchmark_sources,
     config_priv_h,
-    dependencies : deps_private_subproject + deps_private + deps_other + [
+    dependencies : deps_private_subproject + deps_private + deps_private_no_pkgconfig + [
       gbenchmark,
     ],
     include_directories : include_dirs,

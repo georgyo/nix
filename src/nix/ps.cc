@@ -103,7 +103,7 @@ struct CmdPs : MixJSON, StoreCommand
                 }
 
                 /* Render the process tree. */
-                [&](this auto const & visit, const Processes & processes, std::string_view prefix) -> void {
+                [&](this const auto & visit, const Processes & processes, std::string_view prefix) -> void {
                     for (const auto & [n, process] : enumerate(processes)) {
                         bool last = n + 1 == processes.size();
 

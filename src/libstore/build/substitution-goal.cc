@@ -7,6 +7,7 @@
 #include "nix/util/signals.hh"
 #include "nix/util/callback.hh"
 
+#include <array>
 #include <nlohmann/json.hpp>
 
 namespace nix {
@@ -111,8 +112,6 @@ Goal::Co PathSubstitutionGoal::init()
                 });
         } catch (InvalidPath &) {
             continue;
-        } catch (SubstituterDisabled & e) {
-            continue;
         } catch (Error & e) {
             lastStoresException = std::make_optional(std::move(e));
             continue;
@@ -166,10 +165,29 @@ Goal::Co PathSubstitutionGoal::init()
 
         co_await await(std::move(waitees));
 
-        // FIXME: consider returning boolean instead of passing in reference
-        bool out = false; // is mutated by tryToRun
-        co_await tryToRun(subPath ? *subPath : storePath, sub, info, out, act.id);
-        substituterFailed = substituterFailed || out;
+        if (nrFailed > 0) {
+            co_return doneFailure(
+                nrNoSubstituters > 0 ? ecNoSubstituters : ecFailed,
+                BuildResult::Failure{{
+                    .status = BuildResult::Failure::DependencyFailed,
+                    .msg = HintFmt(
+                        "some references of path '%s' could not be realised", worker.store.printStorePath(storePath)),
+                }},
+                act.id);
+        }
+
+        std::shared_ptr<const Provenance> provenance;
+        SubstitutionResult res = co_await tryToRun(subPath ? *subPath : storePath, sub, info, act.id, provenance);
+        if (res == SubstitutionResult::Ok) {
+            auto success = BuildResult::Success{.status = BuildResult::Success::Substituted, .provenance = provenance};
+
+            logger->result(
+                act.id, resBuildResult, nlohmann::json(KeyedBuildResult({success}, DerivedPath::Opaque{storePath})));
+
+            co_return doneSuccess(std::move(success));
+        }
+
+        substituterFailed = substituterFailed || (res == SubstitutionResult::SubstituterFailed);
     }
 
     /* None left.  Terminate this goal and let someone else deal
@@ -200,25 +218,14 @@ Goal::Co PathSubstitutionGoal::init()
         act.id);
 }
 
-Goal::Co PathSubstitutionGoal::tryToRun(
+Goal::BasicCo<PathSubstitutionGoal::SubstitutionResult> PathSubstitutionGoal::tryToRun(
     StorePath subPath,
     nix::ref<Store> sub,
     std::shared_ptr<const ValidPathInfo> info,
-    bool & substituterFailed,
-    ActivityId parentAct)
+    ActivityId parentAct,
+    std::shared_ptr<const Provenance> & provenanceOut)
 {
     trace("all references realised");
-
-    if (nrFailed > 0) {
-        co_return doneFailure(
-            nrNoSubstituters > 0 ? ecNoSubstituters : ecFailed,
-            BuildResult::Failure{{
-                .status = BuildResult::Failure::DependencyFailed,
-                .msg = HintFmt(
-                    "some references of path '%s' could not be realised", worker.store.printStorePath(storePath)),
-            }},
-            parentAct);
-    }
 
     for (auto & i : info->references)
         /* ignore self-references */
@@ -272,7 +279,8 @@ Goal::Co PathSubstitutionGoal::tryToRun(
             Activity act(
                 *logger,
                 actSubstitute,
-                Logger::Fields{workerStore->printStorePath(storePath), sub->config.getHumanReadableURI()},
+                std::to_array<Logger::Field>(
+                    {workerStore->printStorePath(storePath), sub->config.getHumanReadableURI()}),
                 parentAct);
             PushActivity pact(act.id);
 
@@ -317,12 +325,13 @@ Goal::Co PathSubstitutionGoal::tryToRun(
             /* Missing NARs are expected when they've been garbage collected.
                This is not a failure, so log as a warning instead of an error. */
             logWarning({.msg = sg.info().msg});
+            co_return SubstitutionResult::SubstituteGone;
         } catch (...) {
             printError(e.what());
-            substituterFailed = true;
+            co_return SubstitutionResult::SubstituterFailed;
         }
 
-        co_return Return{};
+        unreachable();
     }
 
     worker.markContentsGood(storePath);
@@ -346,12 +355,9 @@ Goal::Co PathSubstitutionGoal::tryToRun(
 
     worker.updateProgress();
 
-    auto success = BuildResult::Success{.status = BuildResult::Success::Substituted, .provenance = provenance};
+    provenanceOut = provenance;
 
-    logger->result(
-        parentAct, resBuildResult, nlohmann::json(KeyedBuildResult({success}, DerivedPath::Opaque{storePath})));
-
-    co_return doneSuccess(std::move(success));
+    co_return SubstitutionResult::Ok;
 }
 
 void PathSubstitutionGoal::cleanup()

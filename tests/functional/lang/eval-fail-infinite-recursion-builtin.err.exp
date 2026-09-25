@@ -1,0 +1,16 @@
+error:
+       … while calling the 'toString' builtin
+         at /pwd/lang/eval-fail-infinite-recursion-builtin.nix:5:1:
+            4| in
+            5| toString f
+             | ^
+            6|
+
+       … while calling the 'add' builtin
+         at /pwd/lang/eval-fail-infinite-recursion-builtin.nix:3:7:
+            2| let
+            3|   f = builtins.add f 1;
+             |       ^
+            4| in
+
+       error: infinite recursion encountered

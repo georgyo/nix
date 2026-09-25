@@ -33,9 +33,11 @@ nixMake.mkComponent {
     "unix/include"
   ];
 
-  files = nixMake.commonSupportFiles // {
-    "schema.sql.gen.hh" = nixMake.mkStringHeader ./schema.sql;
-    "ca-specific-schema.sql.gen.hh" = nixMake.mkStringHeader ./ca-specific-schema.sql;
+  files = nixMake.commonSupportFiles;
+
+  embeds."local-store.cc" = {
+    "schema.sql" = ./schema.sql;
+    "ca-specific-schema.sql" = ./ca-specific-schema.sql;
   };
 
   configHeaders = {

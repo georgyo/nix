@@ -9,6 +9,7 @@
 #include "nix/fetchers/tarball.hh"
 #include "nix/util/tarfile.hh"
 #include "nix/fetchers/git-utils.hh"
+#include "nix/fetchers/merkle-tar-adapter.hh"
 
 #include <optional>
 #include <nlohmann/json.hpp>
@@ -22,7 +23,7 @@ struct DownloadUrl
 };
 
 // A github, gitlab, or sourcehut host
-const static std::string hostRegexS = "[a-zA-Z0-9.-]*"; // FIXME: check
+static const std::string hostRegexS = "[a-zA-Z0-9.-]*"; // FIXME: check
 std::regex hostRegex(hostRegexS, std::regex::ECMAScript);
 
 struct GitArchiveInputScheme : InputScheme
@@ -30,8 +31,7 @@ struct GitArchiveInputScheme : InputScheme
     virtual std::optional<std::pair<std::string, std::string>>
     accessHeaderFromToken(const std::string & token) const = 0;
 
-    std::optional<Input>
-    inputFromURL(const fetchers::Settings & settings, const ParsedURL & url, bool requireTree) const override
+    std::optional<Input> inputFromURL(const ParsedURL & url, bool requireTree) const override
     {
         if (url.scheme != schemeName())
             return {};
@@ -80,7 +80,7 @@ struct GitArchiveInputScheme : InputScheme
         attrs.insert_or_assign("owner", path[0]);
         attrs.insert_or_assign("repo", path[1]);
 
-        return inputFromAttrs(settings, attrs);
+        return inputFromAttrs(attrs);
     }
 
     const std::map<std::string, AttributeInfo> & allowedAttrs() const override
@@ -122,7 +122,7 @@ struct GitArchiveInputScheme : InputScheme
         return attrs;
     }
 
-    std::optional<Input> inputFromAttrs(const fetchers::Settings & settings, const Attrs & attrs) const override
+    std::optional<Input> inputFromAttrs(const Attrs & attrs) const override
     {
         getStrAttr(attrs, "owner");
         getStrAttr(attrs, "repo");
@@ -312,14 +312,15 @@ struct GitArchiveInputScheme : InputScheme
 
         TarArchive archive{*source};
         auto tarballCache = settings.getTarballCache();
-        auto parseSink = tarballCache->getFileSystemObjectSink();
+        auto writerPool = settings.getTarballWriterPool();
+        auto parseSink = merkle::makeTarSink(*writerPool);
         auto lastModified = unpackTarfileToSink(archive, *parseSink);
         auto tree = parseSink->flush();
 
         act.reset();
 
         TarballInfo tarballInfo{
-            .treeHash = tarballCache->dereferenceSingletonDirectory(tree), .lastModified = lastModified};
+            .treeHash = tarballCache->dereferenceSingletonDirectory(tree.hash), .lastModified = lastModified};
 
         cache->upsert(treeHashKey, Attrs{{"treeHash", tarballInfo.treeHash.gitRev()}});
         cache->upsert(lastModifiedKey, Attrs{{"lastModified", (uint64_t) tarballInfo.lastModified}});
@@ -462,7 +463,7 @@ struct GitHubInputScheme : GitArchiveInputScheme
         const override
     {
         auto host = getHost(input);
-        Input::fromURL(settings, fmt("git+https://%s/%s/%s.git", host, getOwner(input), getRepo(input)))
+        Input::fromURL(fmt("git+https://%s/%s/%s.git", host, getOwner(input), getRepo(input)))
             .applyOverrides(input.getRef(), input.getRev())
             .clone(settings, store, destDir);
     }
@@ -552,7 +553,6 @@ struct GitLabInputScheme : GitArchiveInputScheme
         auto host = maybeGetStrAttr(input.attrs, "host").value_or("gitlab.com");
         // FIXME: get username somewhere
         Input::fromURL(
-            settings,
             fmt("git+https://%s/%s/%s.git", host, getStrAttr(input.attrs, "owner"), getStrAttr(input.attrs, "repo")))
             .applyOverrides(input.getRef(), input.getRev())
             .clone(settings, store, destDir);
@@ -647,7 +647,6 @@ struct SourceHutInputScheme : GitArchiveInputScheme
     {
         auto host = maybeGetStrAttr(input.attrs, "host").value_or("git.sr.ht");
         Input::fromURL(
-            settings,
             fmt("git+https://%s/%s/%s", host, getStrAttr(input.attrs, "owner"), getStrAttr(input.attrs, "repo")))
             .applyOverrides(input.getRef(), input.getRev())
             .clone(settings, store, destDir);

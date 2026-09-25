@@ -65,10 +65,10 @@ struct CmdFlakeBake : FlakeCommand, MixFlakeSchemas, MixReadOnlyOption
 
         std::filesystem::create_directories(destDir);
         writeFile(destDir / "outputs.json", inv.dump());
-        writeFile(
-            destDir / "flake.nix",
-#include "baked-flake.nix.gen.hh"
-        );
+        static constexpr char bakedFlake[] = {
+#embed "baked-flake.nix"
+        };
+        writeFile(destDir / "flake.nix", std::string_view(bakedFlake, sizeof(bakedFlake)));
     }
 };
 
