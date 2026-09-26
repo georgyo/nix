@@ -9,6 +9,8 @@ fs = import('fs')
 
 doc_url = 'https://manual.determinate.systems/'
 
+official_release = get_option('official-release')
+
 nix = find_program('nix', native : true)
 
 bash = find_program('bash', native : true)
