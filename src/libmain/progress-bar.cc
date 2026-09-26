@@ -88,6 +88,12 @@ private:
         size_t suspensions = 0;
         bool haveUpdate = true;
 
+        /**
+         * In multiline mode, the number of complete lines of the
+         * progress display currently on the terminal, above the cursor.
+         */
+        size_t lastLines = 0;
+
         bool isPaused() const
         {
             return suspensions > 0;
@@ -106,6 +112,12 @@ private:
     bool printBuildLogs = false;
     bool isTTY;
 
+    /**
+     * Whether to show every running activity on its own line, rather
+     * than only the most recent one.
+     */
+    bool printMultiline;
+
     std::unique_ptr<InterruptCallback> interruptCallback, stopCallback, contCallback, winchCallback;
 
     void hideCursorIfNeeded() const
@@ -122,8 +134,9 @@ private:
 
 public:
 
-    ProgressBar(bool isTTY)
+    ProgressBar(bool isTTY, bool printMultiline)
         : isTTY(isTTY)
+        , printMultiline(printMultiline)
         , interruptCallback(createInterruptCallback([&]() {
             pause();
             redraw("\rshutting down\e[K");
@@ -179,7 +192,7 @@ public:
             auto state(state_.lock());
             if (state->active) {
                 state->active = false;
-                clearProgressDisplay();
+                clearProgressDisplay(*state);
                 unhideCursorIfNeeded();
                 updateCV.notify_one();
                 quitCV.notify_one();
@@ -199,7 +212,7 @@ public:
         }
 
         if (state->active) {
-            clearProgressDisplay();
+            clearProgressDisplay(*state);
             /* Show activities that were previously only shown on the
                progress bar. Otherwise the user won't know what's
                happening. */
@@ -220,7 +233,7 @@ public:
         }
         if (state->suspensions == 0) {
             if (state->active) {
-                clearProgressDisplay();
+                clearProgressDisplay(*state);
                 hideCursorIfNeeded();
             }
             state->haveUpdate = true;
@@ -255,7 +268,7 @@ public:
     {
         if (state.active) {
             invalidateRedrawCache();
-            writeToStderr("\r\e[K" + filterANSIEscapes(s, !isTTY) + ANSI_NORMAL "\n");
+            writeToStderr(eraseProgressDisplay(state) + filterANSIEscapes(s, !isTTY) + ANSI_NORMAL "\n");
             draw(state);
         } else {
             writeToStderr(filterANSIEscapes(s, !isTTY) + "\n");
@@ -397,10 +410,18 @@ public:
                 }
                 log(*state, lvlInfo, ANSI_FAINT + info.name.value_or("unnamed") + suffix + ANSI_NORMAL + lastLine);
             } else {
-                state->activities.erase(i->second);
-                info.lastLine = lastLine;
-                state->activities.emplace_back(info);
-                i->second = std::prev(state->activities.end());
+                if (printMultiline)
+                    /* Keep the activity in place, so that the lines
+                       of the progress display don't jump around. */
+                    i->second->lastLine = lastLine;
+                else {
+                    /* Move the activity to the end, so that it's the
+                       one shown on the progress bar. */
+                    state->activities.erase(i->second);
+                    info.lastLine = lastLine;
+                    state->activities.emplace_back(info);
+                    i->second = std::prev(state->activities.end());
+                }
                 update(*state);
             }
         }
@@ -497,10 +518,25 @@ public:
         *lastOutput_.lock() = "";
     }
 
-    void clearProgressDisplay()
+    /**
+     * @return The escape sequence to erase the progress display, leaving
+     * the cursor at the start of the line where it began.
+     */
+    std::string eraseProgressDisplay(State & state)
+    {
+        auto lines = std::exchange(state.lastLines, 0);
+        if (lines > 0)
+            /* Go to the start of the first line and clear everything
+               below it. */
+            return fmt("\r\e[%dF\e[J", lines);
+        else
+            return "\r\e[K";
+    }
+
+    void clearProgressDisplay(State & state)
     {
         invalidateRedrawCache();
-        writeToStderr("\r\e[K");
+        writeToStderr(eraseProgressDisplay(state));
     }
 
     std::chrono::milliseconds draw(State & state) noexcept
@@ -510,6 +546,9 @@ public:
         state.haveUpdate = false;
         if (state.isPaused() || !state.active)
             return nextWakeup;
+
+        if (printMultiline)
+            return drawMultiline(state);
 
         std::string line;
 
@@ -559,6 +598,82 @@ public:
         }
 
         redraw("\r" + filterANSIEscapes(line, false, getWindowWidth()) + ANSI_NORMAL + "\e[K");
+
+        return nextWakeup;
+    }
+
+    /**
+     * Draw the status on one line, followed by every running activity on
+     * its own line, as far as they fit on the terminal.
+     */
+    std::chrono::milliseconds drawMultiline(State & state) noexcept
+    {
+        auto nextWakeup = std::chrono::milliseconds::max();
+
+        auto width = getWindowWidth();
+        size_t height = getWindowSize().first;
+        if (height == 0)
+            height = 25;
+
+        std::string output;
+        size_t lines = 0, moreActivities = 0;
+
+        auto addLine = [&](std::string_view line) {
+            output += filterANSIEscapes(line, false, width) + ANSI_NORMAL "\n";
+            lines++;
+        };
+
+        std::string status = getStatus(state);
+        if (!status.empty())
+            addLine("[" + status + "]");
+
+        auto now = std::chrono::steady_clock::now();
+
+        for (auto & act : state.activities) {
+            if (!act.visible || (act.s.empty() && act.lastLine.empty()))
+                continue;
+
+            /* Don't show activities until some time has passed, to
+               avoid displaying very short activities. */
+            auto delay = std::chrono::milliseconds(10);
+            if (act.startTime + delay >= now) {
+                nextWakeup = std::min(
+                    nextWakeup, std::chrono::duration_cast<std::chrono::milliseconds>(delay - (now - act.startTime)));
+                continue;
+            }
+
+            /* Leave room for the "more" line. */
+            if (lines + 1 >= height) {
+                moreActivities++;
+                continue;
+            }
+
+            std::string line = act.s;
+            if (!act.phase.empty()) {
+                line += " (";
+                line += act.phase;
+                line += ")";
+            }
+            if (!act.lastLine.empty()) {
+                if (!act.s.empty())
+                    line += ": ";
+                line += act.lastLine;
+            }
+            addLine(line);
+        }
+
+        /* This line is not terminated, so the cursor stays on it and
+           `eraseProgressDisplay()` doesn't need to count it. */
+        if (moreActivities)
+            output += fmt("And %d more...", moreActivities);
+
+        auto lastOutput(lastOutput_.lock());
+        if (output != *lastOutput) {
+            /* Use a synchronized update to avoid flickering. */
+            writeToStderr("\e[?2026h" + eraseProgressDisplay(state) + output + "\e[?2026l");
+            state.lastLines = lines;
+            *lastOutput = std::move(output);
+        }
 
         return nextWakeup;
     }
@@ -739,7 +854,7 @@ public:
         auto state(state_.lock());
         if (state->active) {
             invalidateRedrawCache();
-            std::cerr << "\r\e[K";
+            std::cerr << eraseProgressDisplay(*state);
             Logger::writeToStdout(s);
             draw(*state);
         } else {
@@ -753,7 +868,7 @@ public:
         if (!state->active)
             return {};
         invalidateRedrawCache();
-        std::cerr << fmt("\r\e[K%s ", msg);
+        std::cerr << eraseProgressDisplay(*state) << msg << " ";
         unhideCursorIfNeeded();
         auto s = trim(readLine(getStandardInput(), true));
         hideCursorIfNeeded();
@@ -771,9 +886,9 @@ public:
 
 } // namespace
 
-std::unique_ptr<Logger> makeProgressBar()
+std::unique_ptr<Logger> makeProgressBar(bool multiline)
 {
-    return std::make_unique<ProgressBar>(isTTY());
+    return std::make_unique<ProgressBar>(isTTY(), multiline);
 }
 
 } // namespace nix

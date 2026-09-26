@@ -85,6 +85,14 @@ Most Nix commands accept the following command-line options:
 
     Display the raw logs, with the progress bar at the bottom.
 
+  - `multiline`
+
+    Like `bar`, but display each running activity (such as a build or download) on its own line below the progress bar.
+
+  - `multiline-with-logs`
+
+    Like `multiline`, but also display the raw logs above the progress display.
+
 - <span id="opt-no-build-output">[`--no-build-output`](#opt-no-build-output)</span> / `-Q`
 
   By default, output written by builders to standard output and standard error is echoed to the Nix command's standard error.
