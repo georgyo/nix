@@ -61,6 +61,12 @@ private:
         bool visible = true;
         ActivityId parent;
         std::optional<std::string> name;
+        /**
+         * For activities concerning a derivation (such as builds), its
+         * name and version, and possibly the remote machine. Shown as
+         * a separate column by the multiline progress display.
+         */
+        std::optional<std::string> label;
         std::chrono::time_point<std::chrono::steady_clock> startTime;
         bool logged = false;
     };
@@ -305,9 +311,12 @@ public:
             if (auto path = getS(fields, 0)) {
                 auto name = storePathToNameWithoutDrvSuffix(*path);
                 i->s = fmt("building " ANSI_BOLD "%s" ANSI_NORMAL, name);
+                i->label = std::string(name);
                 auto machineName = getS(fields, 1);
-                if (machineName && *machineName != "")
+                if (machineName && *machineName != "") {
                     i->s += fmt(" on " ANSI_BOLD "%s" ANSI_NORMAL, *machineName);
+                    *i->label += fmt(" on %s", *machineName);
+                }
                 i->name = DrvName(name).name;
             }
         }
@@ -329,6 +338,7 @@ public:
             if (auto path = getS(fields, 0)) {
                 auto name = storePathToNameWithoutDrvSuffix(*path);
                 i->s = fmt("post-build " ANSI_BOLD "%s" ANSI_NORMAL, name);
+                i->label = std::string(name);
                 i->name = DrvName(name).name;
             }
         }
@@ -603,8 +613,24 @@ public:
     }
 
     /**
+     * Render a duration compactly, e.g. `42s`, `3m05s` or `1h02m`.
+     */
+    static std::string renderElapsed(std::chrono::steady_clock::duration d)
+    {
+        auto secs = std::chrono::duration_cast<std::chrono::seconds>(d).count();
+        if (secs < 60)
+            return fmt("%ds", secs);
+        if (secs < 3600)
+            return fmt("%dm%02ds", secs / 60, secs % 60);
+        return fmt("%dh%02dm", secs / 3600, (secs / 60) % 60);
+    }
+
+    /**
      * Draw the status on one line, followed by every running activity on
-     * its own line, as far as they fit on the terminal.
+     * its own line, as far as they fit on the terminal. Activities
+     * concerning a derivation (like builds) come first, laid out in
+     * columns: the derivation name, the elapsed time, the build phase,
+     * and the last line of the build log.
      */
     std::chrono::milliseconds drawMultiline(State & state) noexcept
     {
@@ -615,20 +641,14 @@ public:
         if (height == 0)
             height = 25;
 
-        std::string output;
-        size_t lines = 0, moreActivities = 0;
-
-        auto addLine = [&](std::string_view line) {
-            output += filterANSIEscapes(line, false, width) + ANSI_NORMAL "\n";
-            lines++;
-        };
-
-        std::string status = getStatus(state);
-        if (!status.empty())
-            addLine("[" + status + "]");
+        /* Leave at least half of the terminal for the build logs if
+           those are shown too. */
+        size_t maxLines = printBuildLogs ? std::max<size_t>(height / 2, 5) : height - 1;
 
         auto now = std::chrono::steady_clock::now();
 
+        /* The activities to show, derivations first. */
+        std::vector<const ActInfo *> derivations, others;
         for (auto & act : state.activities) {
             if (!act.visible || (act.s.empty() && act.lastLine.empty()))
                 continue;
@@ -642,30 +662,81 @@ public:
                 continue;
             }
 
-            /* Leave room for the "more" line. */
-            if (lines + 1 >= height) {
-                moreActivities++;
-                continue;
-            }
+            (act.label ? derivations : others).push_back(&act);
+        }
 
-            std::string line = act.s;
-            if (!act.phase.empty()) {
-                line += " (";
-                line += act.phase;
-                line += ")";
-            }
-            if (!act.lastLine.empty()) {
-                if (!act.s.empty())
-                    line += ": ";
-                line += act.lastLine;
-            }
+        std::string status = getStatus(state);
+        size_t statusLines = status.empty() ? 0 : 1;
+
+        /* If not everything fits, the last line says how many
+           activities are not shown. */
+        size_t total = derivations.size() + others.size();
+        size_t shown = std::min(total, maxLines > statusLines ? maxLines - statusLines : 0);
+        if (shown < total && shown > 0)
+            shown--;
+        derivations.resize(std::min(derivations.size(), shown));
+        others.resize(shown - derivations.size());
+
+        /* Compute the column widths from the rows that are shown. The
+           label column is capped so that the log lines get some room. */
+        size_t labelWidth = 0, elapsedWidth = 0, phaseWidth = 0;
+        for (auto * act : derivations) {
+            labelWidth = std::max(labelWidth, act->label->size());
+            elapsedWidth = std::max(elapsedWidth, renderElapsed(now - act->startTime).size());
+            phaseWidth = std::max(phaseWidth, act->phase.size());
+        }
+        labelWidth = std::min<size_t>(labelWidth, std::max<size_t>(width / 3, 12));
+
+        auto pad = [](std::string_view s, size_t w, bool right = false) {
+            std::string res;
+            if (s.size() > w)
+                return std::string(s.substr(0, w > 0 ? w - 1 : 0)) + "…";
+            if (right)
+                res.append(w - s.size(), ' ');
+            res += s;
+            if (!right)
+                res.append(w - s.size(), ' ');
+            return res;
+        };
+
+        std::string output;
+        size_t lines = 0;
+
+        auto addLine = [&](std::string_view line) {
+            output += filterANSIEscapes(line, false, width) + ANSI_NORMAL "\n";
+            lines++;
+        };
+
+        if (!status.empty())
+            addLine("[" + status + "]");
+
+        for (auto * act : derivations) {
+            std::string line = "  " ANSI_BOLD + pad(*act->label, labelWidth) + ANSI_NORMAL "  " ANSI_FAINT
+                               + pad(renderElapsed(now - act->startTime), elapsedWidth, true) + ANSI_NORMAL;
+            if (phaseWidth)
+                line += "  " ANSI_BLUE + pad(act->phase, phaseWidth) + ANSI_NORMAL;
+            if (!act->lastLine.empty())
+                line += "  " ANSI_FAINT + act->lastLine + ANSI_NORMAL;
+            addLine(line);
+        }
+
+        for (auto * act : others) {
+            std::string line = "  " + act->s;
+            if (!act->phase.empty())
+                line += " (" + act->phase + ")";
+            if (!act->lastLine.empty())
+                line += ": " ANSI_FAINT + act->lastLine + ANSI_NORMAL;
             addLine(line);
         }
 
         /* This line is not terminated, so the cursor stays on it and
            `eraseProgressDisplay()` doesn't need to count it. */
-        if (moreActivities)
-            output += fmt("And %d more...", moreActivities);
+        if (shown < total)
+            output += filterANSIEscapes(fmt("  " ANSI_FAINT "… and %d more" ANSI_NORMAL, total - shown), false, width);
+
+        /* Update the elapsed times. */
+        if (!derivations.empty())
+            nextWakeup = std::min(nextWakeup, std::chrono::milliseconds(1000));
 
         auto lastOutput(lastOutput_.lock());
         if (output != *lastOutput) {

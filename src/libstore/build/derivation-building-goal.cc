@@ -823,6 +823,15 @@ Goal::Co DerivationBuildingGoal::buildLocally(
 {
     co_await yield();
 
+    /* Wait for a build slot before starting the build activity, so
+       that queued builds are not reported as being built (and then
+       reported again when they actually start). */
+    if (worker.getNrLocalBuilds() >= worker.settings.maxBuildJobs) {
+        outputLocks.unlock();
+        co_await waitForBuildSlot();
+        co_return tryToBuild(std::move(inputPaths));
+    }
+
     auto msg =
         fmt(buildMode == bmRepair  ? "repairing outputs of '%s'"
             : buildMode == bmCheck ? "checking outputs of '%s'"
