@@ -51,13 +51,22 @@ EXCLUDED_TESTS = {
     "test-libstoreconsumer.sh": "needs the test program built by Meson",
 }
 
+# Suites whose meson.build sets `BASH_ENV` to a script in the suite's
+# directory, which then sources the harness for each test. (The plugins
+# suite also does this, but its tests need plugins built by Meson.)
+SUITE_BASH_ENV = {
+    "suites/repl": "common.sh",
+}
+
 
 def discover_tests(source_dir):
     """All tests under the source dir, relative to it.
 
     A test is a `*.sh` file that sources another script (ultimately the
-    harness in common.sh) and whose name does not mark it as a helper. This
-    reproduces the lists in the meson.build files without maintaining them.
+    harness in common.sh) and whose name does not mark it as a helper. In a
+    suite with a `BASH_ENV` script, every non-helper `*.sh` file is a test.
+    This reproduces the lists in the meson.build files without maintaining
+    them.
     """
     tests = []
     for path in sorted(source_dir.rglob("*.sh")):
@@ -66,7 +75,9 @@ def discover_tests(source_dir):
             continue
         if any(fnmatch.fnmatch(path.name, pattern) for pattern in HELPER_PATTERNS):
             continue
-        if re.search(r"^\s*(source|\.)\s+\S+\.sh\b", path.read_text(errors="replace"), re.MULTILINE):
+        if str(rel.parent) in SUITE_BASH_ENV or re.search(
+            r"^\s*(source|\.)\s+\S+\.sh\b", path.read_text(errors="replace"), re.MULTILINE
+        ):
             tests.append(str(rel))
     return tests
 
@@ -119,8 +130,11 @@ class Runner:
         self.lock = threading.Lock()
         self.interrupted = False
 
-    def env_for(self, suite, name):
+    def env_for(self, subdir, suite, name):
         env = dict(os.environ)
+        bash_env = SUITE_BASH_ENV.get(str(subdir))
+        if bash_env:
+            env["BASH_ENV"] = str(self.source_dir / subdir / bash_env)
         # The harness tests `[[ -n $NIX_STORE ]]` under `set -u` to detect
         # running inside a Nix build (where nested builds cannot sandbox).
         env.setdefault("NIX_STORE", "")
@@ -168,7 +182,7 @@ class Runner:
             child = subprocess.Popen(
                 ["bash", "-x", "-e", "-u", "-o", "pipefail", path.name],
                 cwd=self.source_dir / subdir,
-                env=self.env_for(suite, test),
+                env=self.env_for(subdir, suite, test),
                 # No terminal on stdin (as with Meson): tests must not read
                 # from it, and programs like an interactive bash would change
                 # its settings, mangling the output.
