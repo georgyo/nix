@@ -11,6 +11,8 @@
 #include <tuple>
 #include <utility>
 
+#include <boost/regex.hpp>
+
 #include "nix/flake/flakeref.hh"
 #include "nix/util/url.hh"
 #include "nix/util/url-parts.hh"
@@ -132,10 +134,10 @@ std::pair<FlakeRef, std::string> parsePathFlakeRefWithFragment(
     bool isFlake,
     bool preserveRelativePaths)
 {
-    static std::regex pathFlakeRegex(R"(([^?#]*)(\?([^#]*))?(#(.*))?)", std::regex::ECMAScript);
+    static boost::regex pathFlakeRegex(R"(([^?#]*)(\?([^#]*))?(#(.*))?)", boost::regex::ECMAScript);
 
-    std::match_results<std::string_view::const_iterator> match;
-    auto succeeds = std::regex_match(url.begin(), url.end(), match, pathFlakeRegex);
+    boost::match_results<std::string_view::const_iterator> match;
+    auto succeeds = boost::regex_match(url.begin(), url.end(), match, pathFlakeRegex, boost::match_not_dot_newline);
     if (!succeeds)
         throw Error("invalid flakeref '%s'", url);
     std::filesystem::path path = match[1].str();
@@ -246,14 +248,13 @@ std::pair<FlakeRef, std::string> parsePathFlakeRefWithFragment(
  */
 static std::optional<std::pair<FlakeRef, std::string>> parseFlakeIdRef(std::string_view url, bool isFlake)
 {
-    /* https://lists.isocpp.org/std-proposals/att-0008/Dxxxx_string_view_support_for_regex.pdf */
-    std::match_results<std::string_view::const_iterator> match;
+    boost::match_results<std::string_view::const_iterator> match;
 
-    static std::regex flakeRegex(
+    static boost::regex flakeRegex(
         "((" + flakeIdRegexS + ")(?:/(?:" + refAndOrRevRegex + "))?)" + "(?:#(" + fragmentRegex + "))?",
-        std::regex::ECMAScript);
+        boost::regex::ECMAScript);
 
-    if (std::regex_match(url.begin(), url.end(), match, flakeRegex)) {
+    if (boost::regex_match(url.begin(), url.end(), match, flakeRegex)) {
         auto parsedURL = ParsedURL{
             .scheme = "flake",
             .authority = std::nullopt,

@@ -591,6 +591,7 @@ void mainWrapped(int argc, char ** argv)
             Xp::DynamicDerivations,
             Xp::FetchTree,
             Xp::BakedDerivations,
+            Xp::Provenance,
         };
         evalSettings.pureEval = false;
         auto statePtr = std::make_shared<EvalState>(
@@ -622,6 +623,8 @@ void mainWrapped(int argc, char ** argv)
             b["type"] = showType(info.type, false);
             if (info.impureOnly)
                 b["impure-only"] = true;
+            if (info.experimentalFeature)
+                b["experimental-feature"] = info.experimentalFeature;
             builtinsJson[name] = std::move(b);
         }
         logger->cout("%s", builtinsJson);
@@ -634,20 +637,27 @@ void mainWrapped(int argc, char ** argv)
     }
 
     Finally printCompletions([&]() {
-        if (args.completions) {
-            switch (args.completions->type) {
-            case Completions::Type::Normal:
-                logger->cout("normal");
-                break;
-            case Completions::Type::Filenames:
-                logger->cout("filenames");
-                break;
-            case Completions::Type::Attrs:
-                logger->cout("attrs");
-                break;
+        /* Don't let a failure to print completions (e.g. EPIPE because
+           the shell closed its end of the pipe) propagate, since this
+           may run while another exception is being unwound. */
+        try {
+            if (args.completions) {
+                switch (args.completions->type) {
+                case Completions::Type::Normal:
+                    logger->cout("normal");
+                    break;
+                case Completions::Type::Filenames:
+                    logger->cout("filenames");
+                    break;
+                case Completions::Type::Attrs:
+                    logger->cout("attrs");
+                    break;
+                }
+                for (auto & s : args.completions->completions)
+                    logger->cout(s.completion + "\t" + trim(s.description));
             }
-            for (auto & s : args.completions->completions)
-                logger->cout(s.completion + "\t" + trim(s.description));
+        } catch (...) {
+            ignoreExceptionInDestructor();
         }
     });
 

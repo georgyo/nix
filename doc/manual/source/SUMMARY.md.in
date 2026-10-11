@@ -44,6 +44,7 @@
   - [Built-ins](language/builtins.md)
     - [Derivations](language/derivations.md)
       - [Advanced Attributes](language/advanced-attributes.md)
+      - [Derivation metadata](language/derivation-metadata.md)
       - [Import From Derivation](language/import-from-derivation.md)
 - [Package Management](package-management/index.md)
   - [Profiles](package-management/profiles.md)
@@ -155,6 +156,8 @@
   - [Contributing](development/contributing.md)
 - [Determinate Nix Release Notes](release-notes-determinate/index.md)
   - [Changes between Nix and Determinate Nix](release-notes-determinate/changes.md)<!-- next -->
+  - [Release 3.23.1 (2026-10-05)](release-notes-determinate/v3.23.1.md)
+  - [Release 3.23.0 (2026-10-01)](release-notes-determinate/v3.23.0.md)
   - [Release 3.22.5 (2026-09-17)](release-notes-determinate/v3.22.5.md)
   - [Release 3.22.4 (2026-09-16)](release-notes-determinate/v3.22.4.md)
   - [Release 3.22.3 (2026-09-02)](release-notes-determinate/v3.22.3.md)

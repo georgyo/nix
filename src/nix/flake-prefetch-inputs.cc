@@ -42,11 +42,13 @@ struct CmdFlakePrefetchInputs : FlakeCommand
             if (!state_.lock()->done.insert(&node).second)
                 return;
 
+            auto lockedNode = dynamic_cast<const LockedNode *>(&node);
+
+            if (lockedNode && lockedNode->buildTime)
+                return;
+
             // Relative path inputs are part of their parent's source tree.
-            if (auto lockedNode = dynamic_cast<const LockedNode *>(&node);
-                lockedNode && !lockedNode->lockedRef.input.isRelative()) {
-                if (lockedNode->buildTime)
-                    return;
+            if (lockedNode && !lockedNode->lockedRef.input.isRelative()) {
                 try {
                     Activity act(*logger, lvlInfo, actUnknown, fmt("fetching '%s'", lockedNode->lockedRef));
                     auto accessor = lockedNode->lockedRef.input.getAccessor(fetchSettings, *store).first;

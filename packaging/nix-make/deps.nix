@@ -213,7 +213,8 @@ in
     pkgconfig = [ "libeditline" ];
   }
   {
-    prefix = "git2/";
+    # Matches both <git2.h> and <git2/...>.
+    prefix = "git2";
     pkg = deps.libgit2;
     pkgconfig = [ "libgit2" ];
   }
@@ -224,5 +225,24 @@ in
       deps.wasmtime.lib
     ];
     libs = [ "-lwasmtime" ];
+  }
+  # Unit test frameworks.
+  {
+    prefix = "gtest/";
+    pkg = deps.gtest;
+    pkgconfig = [ "gtest" ];
+  }
+  {
+    prefix = "gmock/";
+    pkg = deps.gtest;
+    pkgconfig = [ "gmock" ];
+  }
+  {
+    # Matches both <rapidcheck.h> and <rapidcheck/...>. rapidcheck.pc has
+    # an empty `Libs:`, so the library is named explicitly.
+    prefix = "rapidcheck";
+    pkg = deps.rapidcheck;
+    pkgconfig = [ "rapidcheck" ];
+    libs = [ "-lrapidcheck" ];
   }
 ]

@@ -5,10 +5,31 @@
 }:
 
 let
+  commonCheck = ''
+    export NIX_CONFIG="substituters = "
 
-  installScripts = {
+    nix-env --version
+
+    nix store info
+    nix-store --verify --check-contents
+    nix store verify --all --no-trust
+
+    nix-channel --add file://$HOME/channel myChannel
+    nix-channel --update
+    [[ $(nix-instantiate --eval --expr 'builtins.readFile <myChannel/someFile>') = '"someContent"' ]]
+
+    bad_mtime=$( find /nix/store/ -mindepth 1 ! -path /nix/store/.links \
+                 -exec sh -c '[ "$(stat -c %Y "{}")" -ne 1 ]' \; -print -quit )
+    if [ -n "$bad_mtime" ]; then
+      echo "bad filesystem object mtime after install:"
+      stat "$bad_mtime"
+      exit 1
+    fi
+  '';
+
+  installCases = {
     install-default = {
-      script = ''
+      install = ''
         tar -xf ./nix.tar.xz
         mv ./nix-* nix
         ./nix/install --no-channel-add
@@ -16,7 +37,7 @@ let
     };
 
     install-both-profile-links = {
-      script = ''
+      install = ''
         tar -xf ./nix.tar.xz
         mv ./nix-* nix
         ln -s $HOME/.local/state/nix/profiles/a-profile $HOME/.nix-profile
@@ -27,7 +48,7 @@ let
     };
 
     install-force-no-daemon = {
-      script = ''
+      install = ''
         tar -xf ./nix.tar.xz
         mv ./nix-* nix
         ./nix/install --no-daemon --no-channel-add
@@ -35,7 +56,7 @@ let
     };
 
     install-force-daemon = {
-      script = ''
+      install = ''
         tar -xf ./nix.tar.xz
         mv ./nix-* nix
         ./nix/install --daemon --no-channel-add
@@ -129,9 +150,9 @@ let
         };
         shell = "/bin/sh";
         postBoot = "touch ~/.profile";
-        installScripts = {
+        installCases = {
           # Multi-user installer doesn't support non-bash shells or OpenRC.
-          inherit (installScripts) install-default install-both-profile-links install-force-no-daemon;
+          inherit (installCases) install-default install-both-profile-links install-force-no-daemon;
         };
       };
     };
@@ -145,6 +166,7 @@ let
     }:
     let
       image = images.${imageName}.${system};
+      test = installCases.${testName};
     in
     with nixpkgsFor.${system}.native;
     runCommand "installer-test-${imageName}-${testName}"
@@ -156,7 +178,8 @@ let
         ];
         image = image.image;
         postBoot = image.postBoot or "";
-        installScript = installScripts.${testName}.script;
+        installScript = test.install;
+        checkScript = commonCheck + (test.check or "");
         binaryTarball = binaryTarballs.${system};
       }
       ''
@@ -221,7 +244,7 @@ let
 
         if [[ -n $postBoot ]]; then
           echo "Running post-boot commands..."
-          $ssh "set -ex; $postBoot"
+          $ssh "set -eux; $postBoot"
         fi
 
         echo "Copying installer..."
@@ -248,17 +271,7 @@ let
         echo "Testing Nix installation..."
         $ssh <<EOF
           set -eux
-
-          nix-env --version
-          nix store info
-
-          out=\$(nix-build --no-substitute -E 'derivation { name = "foo"; system = "${system}"; builder = "/bin/sh"; args = ["-c" "echo foobar > \$out"]; }')
-          [ "\$(cat \$out)" = foobar ]
-
-          export NIX_CONFIG="substituters = "
-          \$(which nix-channel) --add file://\$HOME/channel myChannel
-          \$(which nix-channel) --update
-          [[ \$(nix-instantiate --eval --expr 'builtins.readFile <myChannel/someFile>') = '"someContent"' ]]
+          $checkScript
         EOF
 
         echo "Done!"
@@ -271,7 +284,7 @@ builtins.mapAttrs (
   imageName: imageForSystems:
   lib.concatMapAttrs (system: image: {
     ${system} = builtins.mapAttrs (testName: test: makeTest { inherit imageName testName system; }) (
-      image.installScripts or installScripts
+      image.installCases or installCases
     );
   }) imageForSystems
 ) images

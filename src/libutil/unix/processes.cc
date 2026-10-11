@@ -14,6 +14,7 @@
 #include <future>
 #include <iostream>
 #include <atomic>
+#include <thread>
 
 #include <grp.h>
 #include <sys/types.h>
@@ -39,6 +40,7 @@ Pid::Pid(Pid && other) noexcept
     : pid(other.pid)
     , separatePG(other.separatePG)
     , killSignal(other.killSignal)
+    , killTimeout(other.killTimeout)
 {
     other.release();
 }
@@ -88,8 +90,23 @@ int Pid::kill(bool allowInterrupts)
 
     using namespace std::chrono_literals;
 
+    std::thread killThread;
+
+    /* Make sure that the thread is joined even if `wait()` throws
+       an exception. */
+    Finally joinKillThread([&]() {
+        if (killThread.joinable()) {
+            killed = true;
+            killThread.join();
+        }
+    });
+
+    /* Note: the thread must not use `pid`, since `wait()` sets it to
+       -1 when the child has exited. */
+    pid_t target = separatePG ? -pid : pid;
+
     if (killTimeout > 0ms && killSignal != SIGKILL)
-        killThread = std::thread([&]() {
+        killThread = std::thread([&, target]() {
             auto elapsed = 0ms;
             while (elapsed < killTimeout) {
                 std::this_thread::sleep_for(25ms);
@@ -97,13 +114,13 @@ int Pid::kill(bool allowInterrupts)
                 if (killed)
                     return;
             }
-            ::kill(separatePG ? -pid : pid, SIGKILL);
+            ::kill(target, SIGKILL);
         });
 
     /* Send the requested signal to the child.  If it has its own
        process group, send the signal to every process in the child
        process group (which hopefully includes *all* its children). */
-    if (::kill(separatePG ? -pid : pid, killSignal) != 0) {
+    if (::kill(target, killSignal) != 0) {
         /* On BSDs, killing a process group will return EPERM if all
            processes in the group are zombies (or something like
            that). So try to detect and ignore that situation. */
@@ -113,12 +130,7 @@ int Pid::kill(bool allowInterrupts)
             logError(SysError("killing process %d", pid).info());
     }
 
-    int ret = wait(allowInterrupts);
-    if (killThread.joinable()) {
-        killed = true;
-        killThread.join();
-    }
-    return ret;
+    return wait(allowInterrupts);
 }
 
 int Pid::wait(bool allowInterrupts)

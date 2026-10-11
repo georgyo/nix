@@ -8,7 +8,7 @@ namespace nix {
 
 // URI stuff.
 static const std::string pctEncoded = "(?:%[0-9a-fA-F][0-9a-fA-F])";
-static const std::string unreservedRegex = "(?:[a-zA-Z0-9-._~])";
+static const std::string unreservedRegex = "(?:[a-zA-Z0-9._~-])";
 static const std::string subdelimsRegex = "(?:[!$&'\"()*+,;=])";
 static const std::string pcharRegex = "(?:" + unreservedRegex + "|" + pctEncoded + "|" + subdelimsRegex + "|[:@])";
 static const std::string fragmentRegex = "(?:" + pcharRegex + "|[/? \"^])*";
