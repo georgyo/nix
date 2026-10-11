@@ -59,6 +59,14 @@ private:
 
     std::unique_ptr<MaintainCount<uint64_t>> mcRunningBuilds;
 
+    /**
+     * The `actBuild` activity of the current (local or remote) build,
+     * if any. It is kept alive until `init()` has reported the
+     * `resBuildResult` on it, so that the result is attached to the
+     * build's span rather than to activity 0.
+     */
+    std::shared_ptr<Activity> buildAct;
+
     std::string key() override;
 
     struct LocalBuildCapability
@@ -70,18 +78,23 @@ private:
     /**
      * The states.
      */
-    Co gaveUpOnSubstitution();
-    Co tryToBuild(StorePathSet inputPaths);
-    Co buildWithHook(
-        StorePathSet inputPaths,
-        std::map<std::string, InitialOutput> initialOutputs,
-        DerivationOptions<StorePath> drvOptions,
-        PathLocks outputLocks);
-    Co buildLocally(
+    using Result = decltype(BuildResult::inner);
+
+    struct NeedsSlot
+    {};
+
+    using LocalBuildOutcome = std::variant<Result, NeedsSlot>;
+
+    Co<ExitCode> init();
+    Co<void> realiseInputs();
+    Co<Result> tryToBuild();
+    Co<Result> buildWithHook(
+        const StorePathSet & inputPaths, std::map<std::string, InitialOutput> & initialOutputs, PathLocks outputLocks);
+    Co<LocalBuildOutcome> buildLocally(
         LocalBuildCapability localBuildCap,
-        StorePathSet inputPaths,
-        std::map<std::string, InitialOutput> initialOutputs,
-        DerivationOptions<StorePath> drvOptions,
+        const StorePathSet & inputPaths,
+        std::map<std::string, InitialOutput> & initialOutputs,
+        const DerivationOptions<StorePath> & drvOptions,
         PathLocks outputLocks);
 
     /**
@@ -89,7 +102,7 @@ private:
      */
     HookReply tryBuildHook(const DerivationOptions<StorePath> & drvOptions);
 
-    Done doneFailureLogTooLong(BuildLog & buildLog);
+    BuildError logLimitExceeded();
 
     /**
      * Wrappers around the corresponding Store methods that first consult the
@@ -105,14 +118,6 @@ private:
      * 'SingleDrvOutputs' structure containing the valid outputs.
      */
     std::pair<bool, SingleDrvOutputs> checkPathValidity(std::map<std::string, InitialOutput> & initialOutputs);
-
-    Done doneSuccess(
-        BuildResult::Success::Status status,
-        SingleDrvOutputs builtOutputs,
-        ActivityId act = 0,
-        std::shared_ptr<const Provenance> provenance = nullptr);
-
-    Done doneFailure(BuildError ex, ActivityId act = 0);
 
     BuildError fixupBuilderFailureErrorMessage(BuilderFailureError msg, BuildLog & buildLog);
 

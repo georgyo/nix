@@ -25,5 +25,12 @@ nixMake.mkComponent {
     "builtin-flake-registry.json.gen.hh" = nixMake.mkStringHeader ./builtin-flake-registry.json;
   };
 
+  configHeaders = {
+    "fetchers-config-private.hh" = {
+      GIT_PROGRAM = "git";
+      HG_PROGRAM = "hg";
+    };
+  };
+
   linkFlags = [ "-Wl,--wrap=__assert_fail" ];
 }

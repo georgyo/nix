@@ -66,6 +66,7 @@ nixMake.mkComponent {
       HAVE_MIMALLOC = 1;
       HAVE_SENTRY = nixMake.config.sentry;
       HAVE_OTEL = nixMake.config.otel;
+      FALLBACK_BASH = "bash";
     }
     // lib.optionalAttrs nixMake.config.sentry {
       CRASHPAD_HANDLER_PATH = "${nixDeps.sentry-native}/bin/crashpad_handler";

@@ -89,6 +89,8 @@ otel_trace = dependency('opentelemetry_trace', required : otel_required)
 configdata.set('HAVE_OTEL', otel_trace.found().to_int())
 deps_private += otel_trace
 
+configdata.set_quoted('FALLBACK_BASH', get_option('bash-program'))
+
 config_priv_h = configure_file(
   configuration : configdata,
   output : 'cli-config-private.hh',

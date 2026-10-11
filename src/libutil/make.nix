@@ -41,6 +41,7 @@ nixMake.mkComponent {
       HAVE_CONNECTAT = 0;
       HAVE_LIBCPUID = 1;
       HAVE_POSIX_FALLOCATE = 1;
+      SH_PROGRAM = "/bin/sh";
     };
     "unix/util-unix-config-private.hh" = {
       HAVE_CLOSE_RANGE = 1;

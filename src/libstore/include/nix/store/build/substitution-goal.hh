@@ -46,11 +46,22 @@ class PathSubstitutionGoal : public Goal
         Ok,
     };
 
+    using Result = std::pair<ExitCode, BuildResult>;
+
+    Co<Result> substitute();
+
+    /**
+     * Report @p result as a `resBuildResult` on activity @p act, so
+     * that it gets attached to this goal's `SubstitutionGoal`
+     * activity, and return it.
+     */
+    Result logResult(Result result, ActivityId act);
+
     /**
      * @param provenanceOut Set to the provenance of the substituted
      * path on success.
      */
-    BasicCo<SubstitutionResult> tryToRun(
+    Co<SubstitutionResult> tryToRun(
         StorePath subPath,
         nix::ref<Store> sub,
         std::shared_ptr<const ValidPathInfo> info,
@@ -80,7 +91,7 @@ public:
     /**
      * The states.
      */
-    Co init();
+    Co<ExitCode> init();
 
     /* Called by destructor, can't be overridden */
     void cleanup() override final;
@@ -89,8 +100,6 @@ public:
     {
         return JobCategory::Substitution;
     };
-
-    Done doneFailure(ExitCode result, BuildResult::Failure failure, ActivityId act = 0);
 };
 
 } // namespace nix

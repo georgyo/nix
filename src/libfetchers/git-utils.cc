@@ -1,4 +1,6 @@
 #include "nix/fetchers/git-utils.hh"
+
+#include "fetchers-config-private.hh"
 #include "nix/fetchers/git-lfs-fetch.hh"
 #include "nix/fetchers/cache.hh"
 #include "nix/fetchers/fetch-settings.hh"
@@ -760,14 +762,26 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
         // that)
         //       then use code that was removed in this commit (see blame)
 
-        if (ExecutablePath::load().findName("git")) {
+        auto & program = gitProgram();
+        bool haveGit = program.filename() == program ? ExecutablePath::load().findName(program.native()).has_value()
+                                                     : isExecutableFileAmbient(program);
+
+        if (haveGit) {
             auto dir = this->path;
 
             // Remove shallow.lock left behind by a previously interrupted `git fetch`, as it would prevent `git fetch`
             // from running. Note that we already have a repository-wide `PathLock` (see git.cc), so this is safe.
             tryUnlink(dir / "shallow.lock");
 
-            OsStrings gitArgs{"-C", dir.native(), "--git-dir", ".", "fetch", "--progress", "--force"};
+            OsStrings gitArgs = {
+                OS_STR("-C"),
+                dir.native(),
+                OS_STR("--git-dir"),
+                OS_STR("."),
+                OS_STR("fetch"),
+                OS_STR("--progress"),
+                OS_STR("--force"),
+            };
             if (shallow) {
                 gitArgs.push_back(OS_STR("--depth"));
                 gitArgs.push_back(OS_STR("1"));
@@ -776,7 +790,14 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
             gitArgs.push_back(string_to_os_string(url));
             gitArgs.push_back(string_to_os_string(refspec));
 
-            auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+            auto [status, _] = runProgram({
+                .spawnOptions =
+                    {
+                        .program = program,
+                        .args = gitArgs,
+                    },
+                .isInteractive = true,
+            });
 
             if (status > 0)
                 throw Error("Failed to fetch git repository '%s'", url);
@@ -837,15 +858,18 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
         // Run verification command
         auto [status, output] = runProgram({
-            .program = "git",
-            .args{
-                OS_STR("-c"),
-                OS_STR("gpg.ssh.allowedSignersFile=") + allowedSignersFile.native(),
-                OS_STR("-C"),
-                path.native(),
-                OS_STR("verify-commit"),
-                string_to_os_string(rev.gitRev()),
-            },
+            .spawnOptions =
+                {
+                    .program = GIT_PROGRAM,
+                    .args{
+                        OS_STR("-c"),
+                        OS_STR("gpg.ssh.allowedSignersFile=") + allowedSignersFile.native(),
+                        OS_STR("-C"),
+                        path.native(),
+                        OS_STR("verify-commit"),
+                        string_to_os_string(rev.gitRev()),
+                    },
+                },
             .mergeStderrToStdout = true,
         });
 
@@ -1800,6 +1824,12 @@ bool isLegalRefName(const std::string & refName)
     }
 
     return false;
+}
+
+const std::filesystem::path & gitProgram()
+{
+    static const std::filesystem::path program = GIT_PROGRAM;
+    return program;
 }
 
 } // namespace nix

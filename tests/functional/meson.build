@@ -162,6 +162,7 @@ suites = [
       'readfile-context.sh',
       'recursive.sh',
       'referrers.sh',
+      'register-validity.sh',
       'remote-store.sh',
       'repair.sh',
       'repl.sh',

@@ -65,6 +65,7 @@ nixMake.mkComponent {
       NIX_USE_WASMTIME = nixMake.config.wasm;
       PACKAGE_VERSION = lib.fileContents ../../.version;
       SANDBOX_SHELL = "${pkgs.busybox-sandbox-shell}/bin/busybox";
+      SSH_PROGRAM = "ssh";
     };
   };
 

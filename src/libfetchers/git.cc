@@ -1,4 +1,6 @@
 #include "nix/util/environment-variables.hh"
+
+#include "fetchers-config-private.hh"
 #include "nix/util/error.hh"
 #include "nix/fetchers/fetchers.hh"
 #include "nix/util/users.hh"
@@ -51,9 +53,12 @@ std::optional<std::string> readHead(const std::filesystem::path & path)
 {
     auto [status, output] = runProgram(
         RunOptions{
-            .program = "git",
-            // FIXME: use 'HEAD' to avoid returning all refs
-            .args = {OS_STR("ls-remote"), OS_STR("--symref"), path.native()},
+            .spawnOptions =
+                {
+                    .program = GIT_PROGRAM,
+                    // FIXME: use 'HEAD' to avoid returning all refs
+                    .args = {OS_STR("ls-remote"), OS_STR("--symref"), path.native()},
+                },
             .isInteractive = true,
         });
     if (status != 0)
@@ -81,7 +86,7 @@ bool storeCachedHead(const std::string & actualUrl, bool shallow, const std::str
     std::filesystem::path cacheDir = getCachePath(actualUrl, shallow);
     try {
         runProgram(
-            "git",
+            GIT_PROGRAM,
             true,
             {
                 OS_STR("-C"),
@@ -203,6 +208,20 @@ struct GitInputScheme : InputScheme
     std::string_view schemeName() const override
     {
         return "git";
+    }
+
+    std::optional<ParsedURL> localRepoURL(const std::filesystem::path & path) const override
+    {
+        if (!pathExists(path / ".git"))
+            return std::nullopt;
+        ParsedURL url{
+            .scheme = "git+file",
+            .authority = ParsedURL::Authority{},
+            .path = pathToUrlPath(path),
+        };
+        if (pathExists(path / ".git" / "shallow"))
+            url.query.insert_or_assign("shallow", "1");
+        return url;
     }
 
     std::string schemeDescription() const override
@@ -465,7 +484,7 @@ struct GitInputScheme : InputScheme
 
         args.push_back(destDir.native());
 
-        runProgram("git", true, args, true);
+        runProgram(GIT_PROGRAM, true, args, true);
     }
 
     std::optional<std::filesystem::path> getSourcePath(const Input & input) const override
@@ -489,16 +508,16 @@ struct GitInputScheme : InputScheme
 
         auto result = runProgram(
             RunOptions{
-                .program = "git",
-                .args{
-                    OS_STR("-C"),
-                    repoPath->native(),
-                    OS_STR("--git-dir"),
-                    string_to_os_string(repoInfo.gitDir),
-                    OS_STR("check-ignore"),
-                    OS_STR("--quiet"),
-                    string_to_os_string(std::string(path.rel())),
-                },
+                {.program = GIT_PROGRAM,
+                 .args{
+                     OS_STR("-C"),
+                     repoPath->native(),
+                     OS_STR("--git-dir"),
+                     string_to_os_string(repoInfo.gitDir),
+                     OS_STR("check-ignore"),
+                     OS_STR("--quiet"),
+                     string_to_os_string(std::string(path.rel())),
+                 }},
             });
         auto exitCode =
 #ifndef WIN32 // TODO abstract over exit status handling on Windows
@@ -511,7 +530,7 @@ struct GitInputScheme : InputScheme
         if (exitCode != 0) {
             // The path is not `.gitignore`d, we can add the file.
             runProgram(
-                "git",
+                GIT_PROGRAM,
                 true,
                 {
                     OS_STR("-C"),
@@ -532,7 +551,7 @@ struct GitInputScheme : InputScheme
                 // Pause the logger to allow for user input (such as a gpg passphrase) in `git commit`
                 auto suspension = logger->suspend();
                 runProgram(
-                    "git",
+                    GIT_PROGRAM,
                     true,
                     {
                         OS_STR("-C"),
@@ -896,18 +915,42 @@ struct GitInputScheme : InputScheme
                 ? [&]() {
                       // Nix < 2.20 used `git checkout` for repos with submodules.
                       StringSink sink; // don't pollute stdout
-                      runProgram2({.program = "git", .args = {"init", tmpDir, "-b", "master"}, .standardOut = &sink});
                       runProgram2(
-                          {.program = "git",
-                           .args = {"-C", tmpDir, "remote", "add", "origin", repoDir},
+                          {.spawnOptions =
+                               {.program = GIT_PROGRAM,
+                                .args = {OS_STR("init"), tmpDir.native(), OS_STR("-b"), OS_STR("master")}},
                            .standardOut = &sink});
                       runProgram2(
-                          {.program = "git",
-                           .args = {"-C", tmpDir, "fetch", "--quiet", "origin", rev.gitRev()},
+                          {.spawnOptions =
+                               {.program = GIT_PROGRAM,
+                                .args =
+                                    {OS_STR("-C"),
+                                     tmpDir.native(),
+                                     OS_STR("remote"),
+                                     OS_STR("add"),
+                                     OS_STR("origin"),
+                                     repoDir.native()}},
                            .standardOut = &sink});
                       runProgram2(
-                          {.program = "git",
-                           .args = {"-C", tmpDir, "checkout", "--quiet", rev.gitRev()},
+                          {.spawnOptions =
+                               {.program = GIT_PROGRAM,
+                                .args =
+                                    {OS_STR("-C"),
+                                     tmpDir.native(),
+                                     OS_STR("fetch"),
+                                     OS_STR("--quiet"),
+                                     OS_STR("origin"),
+                                     string_to_os_string(rev.gitRev())}},
+                           .standardOut = &sink});
+                      runProgram2(
+                          {.spawnOptions =
+                               {.program = GIT_PROGRAM,
+                                .args =
+                                    {OS_STR("-C"),
+                                     tmpDir.native(),
+                                     OS_STR("checkout"),
+                                     OS_STR("--quiet"),
+                                     string_to_os_string(rev.gitRev())}},
                            .standardOut = &sink});
                       PathFilter filter = [&](const std::string & path) { return baseNameOf(path) != ".git"; };
                       return store.addToStore(
@@ -922,8 +965,15 @@ struct GitInputScheme : InputScheme
                       // Nix < 2.20 used `git archive` for repos without submodules.
                       auto source = sinkToSource([&](Sink & sink) {
                           runProgram2(
-                              {.program = "git",
-                               .args = {"-C", repoDir, "--git-dir", repoInfo.gitDir, "archive", rev.gitRev()},
+                              {.spawnOptions =
+                                   {.program = GIT_PROGRAM,
+                                    .args =
+                                        {OS_STR("-C"),
+                                         repoDir.native(),
+                                         OS_STR("--git-dir"),
+                                         string_to_os_string(repoInfo.gitDir),
+                                         OS_STR("archive"),
+                                         string_to_os_string(rev.gitRev())}},
                                .standardOut = &sink});
                       });
 
