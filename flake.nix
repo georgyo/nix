@@ -289,6 +289,9 @@
 
           nix = nixComponentsFor.${system}.native.nix-everything;
           default = nixComponentsFor.${system}.native.nix-everything;
+          nix-eval-jobs = nixpkgsFor.${system}.native.callPackage ./packaging/nix-eval-jobs.nix {
+            nixComponents = nixComponentsFor.${system}.native;
+          };
           inherit (nixComponentsFor.${system}.native)
             nix-manual
             nix-manual-manpages-only
