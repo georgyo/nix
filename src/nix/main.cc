@@ -31,6 +31,7 @@
 #include "otel-logger.hh"
 #include "cli-config-private.hh"
 
+#include <charconv>
 #include <sys/types.h>
 #include <nlohmann/json.hpp>
 #if HAVE_SENTRY
@@ -500,6 +501,24 @@ void mainWrapped(int argc, char ** argv)
         sentry_options_set_traces_sample_rate(options, 0);
         sentry_options_set_auto_session_tracking(options, false);
         sentry_options_set_handler_path(options, CRASHPAD_HANDLER_PATH);
+        /* Record the Nix call depth in crash reports, to help
+           diagnose stack overflows (e.g. whether we overflowed before
+           reaching `max-call-depth`). This runs in the signal handler,
+           so avoid the regular allocator. */
+        sentry_options_set_on_crash(
+            options,
+            [](const sentry_ucontext_t *, sentry_value_t event, void *) {
+                auto tags = sentry_value_get_by_key(event, "tags");
+                if (sentry_value_is_null(tags)) {
+                    tags = sentry_value_new_object();
+                    sentry_value_set_by_key(event, "tags", tags);
+                }
+                char buf[24];
+                auto res = std::to_chars(buf, buf + sizeof(buf), CallDepth::callDepth);
+                sentry_value_set_by_key(tags, "call_depth", sentry_value_new_string_n(buf, res.ptr - buf));
+                return event;
+            },
+            nullptr);
         sentry_init(options);
         setSentryTag = [](const char * key, const char * value) { sentry_set_tag(key, value); };
         setSentryTag("nix_command", argc > 0 ? std::string(baseNameOf(argv[0])).c_str() : "");
