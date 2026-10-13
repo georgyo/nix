@@ -75,10 +75,13 @@ expect 1 env NIX_REMOTE=unix:"$PWD"/store nix store info || \
     fail "nix store info on a non-existent store should fail"
 
 # With `--json`, the (partial) result is printed even if connecting to
-# the store fails. A failure to print it (here ENOSPC) must not crash
-# Nix.
-expect 1 env NIX_REMOTE=unix:"$PWD"/store nix store info --json > /dev/full || \
+# the store fails. A failure to print it (here EPIPE, since the reader
+# of the pipe has already exited) must not crash Nix.
+exec {closedPipe}> >(true)
+wait $!
+expect 1 env NIX_REMOTE=unix:"$PWD"/store nix store info --json >&"$closedPipe" || \
     fail "nix store info --json on a non-existent store with a failing stdout should fail cleanly"
+exec {closedPipe}>&-
 
 TODO_NixOS
 
