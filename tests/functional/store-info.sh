@@ -71,8 +71,14 @@ if [[ -v NIX_DAEMON_PACKAGE ]] && isDaemonNewer "2.7.0pre20220126"; then
 fi
 
 
-expect 127 NIX_REMOTE=unix:"$PWD"/store nix store info || \
+expect 1 env NIX_REMOTE=unix:"$PWD"/store nix store info || \
     fail "nix store info on a non-existent store should fail"
+
+# With `--json`, the (partial) result is printed even if connecting to
+# the store fails. A failure to print it (here ENOSPC) must not crash
+# Nix.
+expect 1 env NIX_REMOTE=unix:"$PWD"/store nix store info --json > /dev/full || \
+    fail "nix store info --json on a non-existent store with a failing stdout should fail cleanly"
 
 TODO_NixOS
 
