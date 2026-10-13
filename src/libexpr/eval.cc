@@ -1494,6 +1494,8 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 
     e->eval(state, env, vTmp);
 
+    std::exception_ptr error;
+
     try {
         auto dts = state.debugRepl ? makeDebugTraceStacker(
                                          state,
@@ -1536,15 +1538,28 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 
         state.forceValue(*vAttrs, pos2 ? pos2 : this->pos);
 
-    } catch (Error & e) {
-        if (pos2) {
-            auto pos2r = state.positions[pos2];
-            auto origin = std::get_if<SourcePath>(&pos2r.origin);
-            if (!(origin && *origin == state.derivationInternal))
-                state.addErrorTrace(
-                    e, pos2, "while evaluating the attribute '%1%'", showAttrSelectionPath(state, env, getAttrPath()));
+    } catch (Error &) {
+        if (!pos2)
+            throw;
+        auto pos2r = state.positions[pos2];
+        auto origin = std::get_if<SourcePath>(&pos2r.origin);
+        if (origin && *origin == state.derivationInternal)
+            throw;
+        error = std::current_exception();
+    }
+
+    if (error) {
+        /* Show the attribute path outside of the catch handler: it
+           evaluates dynamic attribute names, which may force thunks
+           and thereby suspend the current fiber, which is not allowed
+           while an exception is being handled. */
+        auto attrPath = showAttrSelectionPath(state, env, getAttrPath());
+        try {
+            std::rethrow_exception(error);
+        } catch (Error & e) {
+            state.addErrorTrace(e, pos2, "while evaluating the attribute '%1%'", attrPath);
+            throw;
         }
-        throw;
     }
 
     v = *vAttrs;
