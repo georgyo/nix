@@ -55,10 +55,15 @@ class JSONSax : nlohmann::json_sax<json>
         Value & value(EvalState & state)
         {
             if (!v) {
-                v = state.allocValue();
                 /* Root the value for the duration of the parse (see
-                   `JSONSax::rootValues`). */
-                rootValues.push_back(v);
+                   `JSONSax::rootValues`). Note: don't pass `v` to
+                   `push_back()`: this object is not scanned by the GC,
+                   and `push_back()` may allocate (and thus trigger a
+                   GC) before copying its argument, so the new value
+                   must be held in a local variable until then. */
+                auto v2 = state.allocValue();
+                rootValues.push_back(v2);
+                v = v2;
             }
             return *v;
         }
