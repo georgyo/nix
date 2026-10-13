@@ -1,6 +1,6 @@
 # Changes between Nix and Determinate Nix
 
-This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.1.<!-- differences -->
+This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.2.<!-- differences -->
 
 * In Determinate Nix, flakes are stable. You no longer need to enable the `flakes` experimental feature.
 
@@ -250,3 +250,31 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 * `nix profile history` reports packages whose store path changed but whose version stayed the same, and has a `--show-source` flag to show the flake reference of each package. [DeterminateSystems/nix-src#665](https://github.com/DeterminateSystems/nix-src/pull/665)
 
 * Running out of memory makes Nix exit with status 12 rather than abort. [DeterminateSystems/nix-src#653](https://github.com/DeterminateSystems/nix-src/pull/653)
+
+<!-- Determinate Nix version 3.23.2 -->
+
+* Fix crash in the GC roots server on fd reuse by @edolstra in [DeterminateSystems/nix-src#672](https://github.com/DeterminateSystems/nix-src/pull/672)
+
+* packaging/nix-make: Build and run the unit tests by @edolstra in [DeterminateSystems/nix-src#673](https://github.com/DeterminateSystems/nix-src/pull/673)
+
+* bash completion: Handle redirections by @edolstra in [DeterminateSystems/nix-src#675](https://github.com/DeterminateSystems/nix-src/pull/675)
+
+* Record the Nix call depth in Sentry crash reports by @edolstra in [DeterminateSystems/nix-src#676](https://github.com/DeterminateSystems/nix-src/pull/676)
+
+* SimpleUserLock: Throw an error if the build users group has GID 0 by @edolstra in [DeterminateSystems/nix-src#679](https://github.com/DeterminateSystems/nix-src/pull/679)
+
+* maintainers/format.sh: Allow running just one hook by @edolstra in [DeterminateSystems/nix-src#678](https://github.com/DeterminateSystems/nix-src/pull/678)
+
+* ExprSelect::eval(): Don't evaluate the attribute path inside a catch handler by @edolstra in [DeterminateSystems/nix-src#680](https://github.com/DeterminateSystems/nix-src/pull/680)
+
+* fromJSON: Fix GC losing values allocated during a parse by @edolstra in [DeterminateSystems/nix-src#683](https://github.com/DeterminateSystems/nix-src/pull/683)
+
+* Update bdwgc: don't abort on GC log write errors on the default stderr by @edolstra in [DeterminateSystems/nix-src#682](https://github.com/DeterminateSystems/nix-src/pull/682)
+
+* enqueueFileTransfer(): Don't throw from a noexcept function by @edolstra in [DeterminateSystems/nix-src#681](https://github.com/DeterminateSystems/nix-src/pull/681)
+
+* nix repl: Make the values of loaded installables visible to the GC by @edolstra in [DeterminateSystems/nix-src#685](https://github.com/DeterminateSystems/nix-src/pull/685)
+
+* PR template: Replace "Context" with "Implementation" by @edolstra in [DeterminateSystems/nix-src#686](https://github.com/DeterminateSystems/nix-src/pull/686)
+
+* nix store info --json: Don't print the result from a Finally by @edolstra in [DeterminateSystems/nix-src#687](https://github.com/DeterminateSystems/nix-src/pull/687)
