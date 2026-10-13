@@ -1,6 +1,6 @@
 # Changes between Nix and Determinate Nix
 
-This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.1.<!-- differences -->
+This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.2.<!-- differences -->
 
 * In Determinate Nix, flakes are stable. You no longer need to enable the `flakes` experimental feature.
 
@@ -250,3 +250,5 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 * `nix profile history` reports packages whose store path changed but whose version stayed the same, and has a `--show-source` flag to show the flake reference of each package. [DeterminateSystems/nix-src#665](https://github.com/DeterminateSystems/nix-src/pull/665)
 
 * Running out of memory makes Nix exit with status 12 rather than abort. [DeterminateSystems/nix-src#653](https://github.com/DeterminateSystems/nix-src/pull/653)
+
+<!-- Determinate Nix version 3.23.2 -->
