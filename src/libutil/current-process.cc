@@ -3,12 +3,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <ranges>
 
 #include "nix/util/current-process.hh"
 #include "nix/util/util.hh"
 #include "nix/util/file-system.hh"
 #include "nix/util/signals.hh"
 #include "nix/util/environment-variables.hh"
+#include "nix/util/sync.hh"
 #include <math.h>
 
 #ifdef __APPLE__
@@ -172,8 +174,32 @@ std::optional<std::filesystem::path> getSelfExe()
     return cached;
 }
 
+static Sync<std::vector<fun<void()>>> & quickExitHandlers()
+{
+    /* Leaked, so that it's never destroyed by static destructors. */
+    static auto & handlers = *new Sync<std::vector<fun<void()>>>;
+    return handlers;
+}
+
+void atQuickExit(fun<void()> f)
+{
+    quickExitHandlers().lock()->push_back(std::move(f));
+}
+
 void quickExit(int status)
 {
+    /* Take ownership of the handlers, so that they don't run again if
+       a handler (or another thread) calls quickExit(). */
+    auto handlers = std::exchange(*quickExitHandlers().lock(), {});
+
+    for (auto & f : std::views::reverse(handlers)) {
+        try {
+            f();
+        } catch (...) {
+            ignoreExceptionInDestructor();
+        }
+    }
+
     std::cout.flush();
     std::cerr.flush();
     std::fflush(nullptr);
