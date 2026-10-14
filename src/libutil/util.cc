@@ -55,13 +55,15 @@ void initLibUtil()
        OpenSSL are still running, OPENSSL_cleanup() frees OpenSSL's
        thread-local state handlers; when those threads then exit, their
        thread-specific-data destructors (init_thread_stop()) crash on
-       the freed state. This happens in particular in nix-daemon
-       connection children, where library destructors run by _dl_fini()
-       (e.g. aws-crt-cpp's) stop their worker threads *after*
-       OPENSSL_cleanup() has already run. Since we're exiting anyway,
-       skipping the cleanup is harmless. This must run before any other
-       use of OpenSSL, since only the first initialisation takes
-       effect. */
+       the freed state (e.g. when library destructors run by
+       _dl_fini(), such as aws-crt-cpp's, stop their worker threads
+       *after* OPENSSL_cleanup() has already run). The Nix CLI and
+       nix-daemon workers exit via quickExit(), which doesn't run
+       atexit() handlers (except in coverage builds), but other
+       programs that use libutil do exit() normally. Since we're
+       exiting anyway, skipping the cleanup is harmless. This must run
+       before any other use of OpenSSL, since only the first
+       initialisation takes effect. */
     if (OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1)
         throw Error("could not initialise OpenSSL");
 
