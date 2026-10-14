@@ -46,4 +46,17 @@ void restoreProcessContext(bool restoreMounts = true);
  */
 std::optional<std::filesystem::path> getSelfExe();
 
+/**
+ * Flush the standard C and C++ output streams and exit with `status`,
+ * without running static destructors or `atexit()` handlers.
+ *
+ * Static destructors run while other threads (e.g. the curl worker
+ * thread) may still be using the objects they destroy, which causes
+ * crashes on exit. Resources that need cleaning up (child processes,
+ * SQLite databases, temporary GC roots) are owned by objects on the
+ * stack, so they have already been released by the time this is
+ * called.
+ */
+[[noreturn]] void quickExit(int status);
+
 } // namespace nix

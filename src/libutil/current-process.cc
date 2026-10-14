@@ -1,5 +1,8 @@
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 
 #include "nix/util/current-process.hh"
 #include "nix/util/util.hh"
@@ -167,6 +170,21 @@ std::optional<std::filesystem::path> getSelfExe()
 #endif
     }();
     return cached;
+}
+
+void quickExit(int status)
+{
+    std::cout.flush();
+    std::cerr.flush();
+    std::fflush(nullptr);
+
+#ifdef __LLVM_INSTR_PROFILE_GENERATE
+    /* In coverage builds, each instrumented library writes its
+       profile from an `atexit()` handler, so we have to run them. */
+    std::exit(status);
+#else
+    std::_Exit(status);
+#endif
 }
 
 } // namespace nix
