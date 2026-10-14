@@ -795,5 +795,9 @@ int main(int argc, char ** argv)
     // The CLI has a more detailed version than the libraries; see nixVersion.
     nix::nixVersion = NIX_CLI_VERSION;
 
-    return nix::handleExceptions(argv[0], [&]() { nix::mainWrapped(argc, argv); });
+    auto status = nix::handleExceptions(argv[0], [&]() { nix::mainWrapped(argc, argv); });
+
+    /* Don't run static destructors, since they race with threads
+       that may still be running. */
+    nix::quickExit(status);
 }
