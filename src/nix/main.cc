@@ -48,6 +48,7 @@
 #  include <netdb.h>
 #  include <netinet/in.h>
 #  include <signal.h>
+#  include <sys/resource.h>
 #endif
 
 #ifdef __linux__
@@ -522,6 +523,16 @@ void mainWrapped(int argc, char ** argv)
         sentry_init(options);
         setSentryTag = [](const char * key, const char * value) { sentry_set_tag(key, value); };
         setSentryTag("nix_command", argc > 0 ? std::string(baseNameOf(argv[0])).c_str() : "");
+#  ifndef _WIN32
+        /* Record the stack size hard limit, to help diagnose stack
+           overflows: if it's lower than what the evaluator asks for
+           via `ensureStackSizeAtLeast()`, the stack can't be grown to
+           that size. */
+        if (struct rlimit limit; getrlimit(RLIMIT_STACK, &limit) == 0)
+            setSentryTag(
+                "stack_hard_limit",
+                limit.rlim_max == RLIM_INFINITY ? "unlimited" : std::to_string(limit.rlim_max).c_str());
+#  endif
         std::set_terminate(terminateHandler);
         sentryEnabled = true;
 
