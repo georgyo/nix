@@ -202,6 +202,7 @@ void quickExit(int status)
 
     std::cout.flush();
     std::cerr.flush();
+    std::clog.flush();
     std::fflush(nullptr);
 
 #ifdef __LLVM_INSTR_PROFILE_GENERATE
