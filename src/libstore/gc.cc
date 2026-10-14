@@ -407,7 +407,7 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
        here because then in auto-gc mode, another thread could
        downgrade our exclusive lock. */
     auto fdGCLock = openGCLock();
-    FdLock gcLock(fdGCLock.get(), ltWrite, true, "waiting for the big garbage collector lock...");
+    FdLock gcLock(fdGCLock.get(), ltWrite, true, "waiting for the big garbage collector lock");
 
     /* Synchronisation point to test ENOENT handling in
        addTempRoot(), see tests/gc-non-blocking.sh. */

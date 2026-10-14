@@ -1238,7 +1238,7 @@ void LocalStore::addToStore(const ValidPathInfo & info, Source & source, RepairF
                from a build hook (whose parent process already acquired a
                lock on this path). */
             if (!locksHeld.count(printStorePath(info.path)))
-                outputLock.lockPaths({realPath});
+                outputLock.lockPaths({realPath}, fmt("waiting for lock on '%s'", Magenta(printStorePath(info.path))));
 
             /* The path may have been created by another process in the meantime, so check again. */
             if (repair || !isValidPathUncached(info.path)) {
@@ -1626,7 +1626,7 @@ bool LocalStore::verifyStore(bool checkContents, RepairFlag repair)
     /* Acquire the global GC lock to get a consistent snapshot of
        existing and valid paths. */
     auto fdGCLock = openGCLock();
-    FdLock gcLock(fdGCLock.get(), ltRead, true, "waiting for the big garbage collector lock...");
+    FdLock gcLock(fdGCLock.get(), ltRead, true, "waiting for the big garbage collector lock");
 
     auto [errors, validPaths] = verifyAllValidPaths(repair);
 
