@@ -28,6 +28,7 @@ namespace nix {
 #define STDERR_START_ACTIVITY 0x53545254
 #define STDERR_STOP_ACTIVITY 0x53544f50
 #define STDERR_RESULT 0x52534c54
+#define STDERR_START_ACTIVITY_STRINGLY 0x5354524e // requires `featureNamedActivities`
 
 struct StoreDirConfig;
 struct Source;
@@ -148,6 +149,13 @@ struct WorkerProto
      * W3C `traceparent` string (empty if the client is not tracing).
      */
     static constexpr std::string_view featureOpenTelemetry = "open-telemetry";
+
+    /**
+     * Feature for forwarding string-named activities from the daemon
+     * to the client, using the `STDERR_START_ACTIVITY_STRINGLY`
+     * message.
+     */
+    static constexpr std::string_view featureNamedActivities = "named-activities";
 
     /**
      * A unidirectional read connection, to be used by the read half of the

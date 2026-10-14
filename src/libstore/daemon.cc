@@ -31,19 +31,23 @@
 
 namespace nix::daemon {
 
+static void writeField(Sink & sink, const Logger::Field & field)
+{
+    if (auto p = std::get_if<uint64_t>(&field.raw)) {
+        sink << 0;
+        sink << *p;
+    } else if (auto p = std::get_if<std::string>(&field.raw)) {
+        sink << 1;
+        sink << *p;
+    } else
+        unreachable();
+}
+
 Sink & operator<<(Sink & sink, const Logger::Fields & fields)
 {
     sink << fields.size();
-    for (auto & f : fields) {
-        if (auto p = std::get_if<uint64_t>(&f.raw)) {
-            sink << 0;
-            sink << *p;
-        } else if (auto p = std::get_if<std::string>(&f.raw)) {
-            sink << 1;
-            sink << *p;
-        } else
-            unreachable();
-    }
+    for (auto & f : fields)
+        writeField(sink, f);
     return sink;
 }
 
@@ -167,6 +171,28 @@ struct TunnelLogger : public Logger
 
         StringSink buf;
         buf << STDERR_START_ACTIVITY << act << lvl << type << s << fields << parent;
+        enqueueMsg(buf.s);
+    }
+
+    void startActivity(
+        ActivityId act,
+        Verbosity lvl,
+        std::string_view name,
+        ActivityMetadata metadata,
+        std::string_view s,
+        ActivityId parent) noexcept override
+    {
+        if (clientVersion.number < WorkerProto::Version::Number{1, 20}
+            || !clientVersion.features.contains(WorkerProto::featureNamedActivities))
+            return Logger::startActivity(act, lvl, name, metadata, s, parent);
+
+        StringSink buf;
+        buf << STDERR_START_ACTIVITY_STRINGLY << act << lvl << name << s << metadata.size();
+        for (auto & [key, value] : metadata) {
+            buf << key;
+            writeField(buf, value);
+        }
+        buf << parent;
         enqueueMsg(buf.s);
     }
 
