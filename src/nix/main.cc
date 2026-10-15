@@ -55,6 +55,10 @@
 #  include "nix/util/linux-namespaces.hh"
 #endif
 
+#ifdef __APPLE__
+#  include <mach/mach.h>
+#endif
+
 #include "nix/util/strings.hh"
 
 namespace nix {
@@ -543,7 +547,24 @@ void mainWrapped(int argc, char ** argv)
         struct sigaction act;
         sigemptyset(&act.sa_mask);
         act.sa_flags = 0;
+#  ifdef __APPLE__
+        /* On macOS, crashpad doesn't catch crashes via signal
+           handlers, but via the task's Mach exception ports, and the
+           kernel sends EXC_CRASH to those when the process is killed
+           by a signal that dumps core, such as SIGQUIT, even if its
+           disposition is SIG_DFL. So detach crashpad's exception
+           ports (like restoreProcessContext() does) before dying from
+           SIGQUIT. The re-raised signal is delivered when the handler
+           returns. */
+        act.sa_handler = [](int) {
+            task_set_exception_ports(
+                mach_task_self(), EXC_MASK_ALL | EXC_MASK_CRASH, MACH_PORT_NULL, EXCEPTION_DEFAULT, THREAD_STATE_NONE);
+            signal(SIGQUIT, SIG_DFL);
+            raise(SIGQUIT);
+        };
+#  else
         act.sa_handler = SIG_DFL;
+#  endif
         if (sigaction(SIGQUIT, &act, 0))
             throw SysError("handling SIGQUIT");
     }
