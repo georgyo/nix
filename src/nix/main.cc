@@ -494,10 +494,24 @@ void mainWrapped(int argc, char ** argv)
         }
     }
 
+    /* Sentry needs an absolute path for its database. Otherwise we'd
+       create a `.cache/nix/sentry` directory in the current directory
+       (or `.sentry-native` if we don't set a path at all). */
+    std::optional<std::filesystem::path> sentryDatabaseDir;
     if (sentryEndpoint && sentryEndpoint != "") {
+        try {
+            auto dir = getCacheDir() / "sentry";
+            if (dir.is_absolute())
+                sentryDatabaseDir = std::move(dir);
+        } catch (...) {
+            ignoreExceptionExceptInterrupt(lvlDebug);
+        }
+    }
+
+    if (sentryDatabaseDir) {
         sentry_options_t * options = sentry_options_new();
         sentry_options_set_dsn(options, sentryEndpoint->c_str());
-        sentry_options_set_database_path(options, (getCacheDir() / "sentry").string().c_str());
+        sentry_options_set_database_path(options, sentryDatabaseDir->string().c_str());
         sentry_options_set_release(options, fmt("nix@%s", determinateNixVersion).c_str());
         sentry_options_set_traces_sample_rate(options, 0);
         sentry_options_set_auto_session_tracking(options, false);
