@@ -1,6 +1,6 @@
 # Changes between Nix and Determinate Nix
 
-This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.2.<!-- differences -->
+This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.3.<!-- differences -->
 
 * In Determinate Nix, flakes are stable. You no longer need to enable the `flakes` experimental feature.
 
@@ -252,3 +252,25 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 * Running out of memory makes Nix exit with status 12 rather than abort. [DeterminateSystems/nix-src#653](https://github.com/DeterminateSystems/nix-src/pull/653)
 
 <!-- Determinate Nix version 3.23.2 -->
+
+<!-- Determinate Nix version 3.23.3 -->
+
+* Record the stack size hard limit in Sentry crash reports by @edolstra in [DeterminateSystems/nix-src#689](https://github.com/DeterminateSystems/nix-src/pull/689)
+
+* SSHMaster: Only create a temporary directory if needed by @edolstra in [DeterminateSystems/nix-src#691](https://github.com/DeterminateSystems/nix-src/pull/691)
+
+* Show an activity when waiting for a path lock by @edolstra in [DeterminateSystems/nix-src#692](https://github.com/DeterminateSystems/nix-src/pull/692)
+
+* Don't run static destructors on exit by @edolstra in [DeterminateSystems/nix-src#690](https://github.com/DeterminateSystems/nix-src/pull/690)
+
+* Forward string-named activities from the daemon to the client by @edolstra in [DeterminateSystems/nix-src#693](https://github.com/DeterminateSystems/nix-src/pull/693)
+
+* Ignore empty or relative $HOME and XDG/NIX_*_HOME directories by @edolstra in [DeterminateSystems/nix-src#695](https://github.com/DeterminateSystems/nix-src/pull/695)
+
+* Fix GC races that could delete paths in use by @edolstra in [DeterminateSystems/nix-src#696](https://github.com/DeterminateSystems/nix-src/pull/696)
+
+* Add scripts for long-term monitoring of eval performance by @edolstra in [DeterminateSystems/nix-src#671](https://github.com/DeterminateSystems/nix-src/pull/671)
+
+* Add skills for upstreaming and downstreaming commits / PRs by @edolstra in [DeterminateSystems/nix-src#648](https://github.com/DeterminateSystems/nix-src/pull/648)
+
+* macOS: Don't report SIGQUIT as a crash by @edolstra in [DeterminateSystems/nix-src#694](https://github.com/DeterminateSystems/nix-src/pull/694)
