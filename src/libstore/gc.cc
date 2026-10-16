@@ -577,10 +577,15 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
 
         /* There may be temp directories in the store that are still in use
            by another process. We need to be sure that we can acquire an
-           exclusive lock before deleting them. */
+           exclusive lock before deleting them. Note that we must keep
+           holding the lock until we've deleted the directory,
+           otherwise createTempDirInStore() in another process could
+           acquire the lock and start using the directory while we're
+           deleting it. */
+        AutoCloseFD tmpDirFd;
         if (baseName.find("tmp-", 0) == 0) {
             /* TODO Reconsider whether Follow is the right choice, here */
-            auto tmpDirFd = openDirectory(realPath, FinalSymlink::Follow);
+            tmpDirFd = openDirectory(realPath, FinalSymlink::Follow);
             if (!tmpDirFd || !lockFile(tmpDirFd.get(), ltWrite, false)) {
                 debug("skipping locked tempdir %s", PathFmt(realPath));
                 return;
