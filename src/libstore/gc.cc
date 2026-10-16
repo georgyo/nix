@@ -91,18 +91,25 @@ void LocalStore::addTempRoots(const StorePathSet & paths, bool _skipIfSlow)
 
     createTempRootsFile();
 
-    /* Open/create the global GC lock file. */
-    {
-        auto fdGCLock(_fdGCLock.lock());
-        if (!*fdGCLock)
-            *fdGCLock = openGCLock();
-    }
+    /* Open/create the global GC lock file. Note that we keep holding
+       `_fdGCLock` until we've written the temporary roots file. This
+       is because the shared lock acquired below belongs to the open
+       file description, which is shared by all threads. So if
+       multiple threads were in this function concurrently, the
+       first thread to release its lock would also release the lock
+       of the other threads. A garbage collector could then start and
+       read our temporary roots file before the other threads have
+       written their roots to it, causing those roots to be
+       ignored. */
+    auto fdGCLock(_fdGCLock.lock());
+    if (!*fdGCLock)
+        *fdGCLock = openGCLock();
 
 restart:
     /* Try to acquire a shared global GC lock (non-blocking). This
        only succeeds if the garbage collector is not currently
        running. */
-    FdLock gcLock(_fdGCLock.lock()->get(), ltRead, false, "");
+    FdLock gcLock(fdGCLock->get(), ltRead, false, "");
 
     if (!gcLock.acquired) {
         /* We couldn't get a shared global GC lock, so the garbage
