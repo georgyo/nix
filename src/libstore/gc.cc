@@ -756,6 +756,11 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
             }
         }
         for (auto & path : topoSortPaths(visited)) {
+            /* Skip paths that became alive after the BFS because
+               they're in the closure of a path that became a
+               temporary root (see below). */
+            if (alive.contains(path))
+                continue;
             if (!dead.insert(path).second)
                 continue;
             if (shouldDelete) {
@@ -775,6 +780,7 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
                         debug(
                             "not deleting '%s' because it became a temporary root after initial scan",
                             printStorePath(path));
+                        dead.erase(path);
                         markAlive(path);
                         continue;
                     }
@@ -793,6 +799,10 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
                     // If we end up here, it's likely a new occurrence
                     // of https://github.com/NixOS/nix/issues/11923
                     printError("BUG: %s", e.what());
+                    /* The path is still valid, so it and its closure
+                       are alive. */
+                    dead.erase(path);
+                    markAlive(path);
                 }
             }
         }
