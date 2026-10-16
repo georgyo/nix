@@ -1022,8 +1022,10 @@ void EvalState::forceValueDeepParallel(Value & vRoot, PosIdx pos, bool spawnThun
 
         case nAttrs: {
 
-            NixStringContext context;
-            if (state.tryAttrsToString(pos, v, context, false, false))
+            /* Don't walk attrsets that are coercible to a string via
+               `__toString`, but don't call it either: it's an
+               arbitrary function. */
+            if (v.attrs()->get(s.toString))
                 return;
 
             if (auto aOutPath = v.attrs()->get(s.outPath)) {
