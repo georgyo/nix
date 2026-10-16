@@ -173,7 +173,6 @@ LocalStore::LocalStore(ref<const Config> config)
     , reservedPath(dbDir / "reserved")
     , schemaPath(dbDir / "schema")
     , tempRootsDir(config->stateDir.get() / "temproots")
-    , fnTempRoots(tempRootsDir / std::to_string(getpid()))
     , activeBuildsDir(config->stateDir.get() / "active-builds")
 {
     auto state(_state->lock());
@@ -486,10 +485,13 @@ LocalStore::~LocalStore()
     }
 
     try {
-        auto fdTempRoots(_fdTempRoots.lock());
-        if (*fdTempRoots) {
-            fdTempRoots->close();
-            tryUnlink(fnTempRoots);
+        auto tempRootsFile(_tempRootsFile.lock());
+        if (tempRootsFile->fd) {
+            /* Delete the file before closing it, i.e. while we still
+               hold the lock, to guarantee that nobody else has
+               replaced it. */
+            tryUnlink(tempRootsFile->path);
+            tempRootsFile->fd.close();
         }
     } catch (...) {
         ignoreExceptionInDestructor();
