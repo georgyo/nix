@@ -890,6 +890,13 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results)
 
                     for (auto & i : pathsToDelete.paths) {
                         maybeDeleteReferrersClosure(i);
+                        /* The path may not have been deleted if it
+                           became alive during deletion, e.g. because it
+                           became a temporary root. */
+                        if (options.action == GCOptions::gcDeleteSpecific && !dead.contains(i))
+                            throw Error(
+                                "Cannot delete path '%s' because it's in use by another process or path.",
+                                printStorePath(i));
                         assert(options.action == GCOptions::gcDeleteDead || dead.count(i));
                     }
                 },
