@@ -52,6 +52,20 @@ echo "$json" | jq -e '.[0].processes | length == 2' >/dev/null
 echo "$json" | jq -e '.[0] | has("rss")' >/dev/null
 echo "$json" | jq -e '.[0].processes | all(.rss | type == "number" and . > 0)' >/dev/null
 
+# `nix top` requires a terminal.
+expectStderr 1 nix top < /dev/null | grepQuiet "requires a terminal"
+
+# Run `nix top` on a pseudo-terminal, quitting it after a few seconds.
+if type -p script >/dev/null && script -e -q -c true /dev/null; then
+  out=$( (sleep 3; printf q) | timeout 60 script -e -q -c 'stty cols 300 rows 50; nix top' /dev/null)
+  echo "$out"
+  echo "$out" | grepQuiet 'nix-ps-test.drv'
+  echo "$out" | grepQuiet 'sleep 600'
+  echo "$out" | grepQuiet '%CPU'
+else
+  echo "script is not available or not GNU-like, so we skip testing 'nix top'"
+fi
+
 # Release the build and wait for it to finish successfully.
 echo "done" > "$finish"
 wait "$buildPid"
