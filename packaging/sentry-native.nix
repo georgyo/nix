@@ -11,12 +11,12 @@
 
 stdenv.mkDerivation rec {
   pname = "sentry-native";
-  version = "0.13.5";
+  version = "0.17.4";
 
   src = fetchgit {
     url = "https://github.com/getsentry/sentry-native";
     tag = version;
-    hash = "sha256-vDBI6lB1DMLleAgRCfsHvTSdtmXOzvJSaNAt+NwOd3c=";
+    hash = "sha256-iVWIL/AM5X223HEDzyUFEyxqdOPD0/YU4Ycg9sAwfYE=";
     fetchSubmodules = true;
   };
 
@@ -43,7 +43,11 @@ stdenv.mkDerivation rec {
 
   cmakeBuildType = "RelWithDebInfo";
 
-  cmakeFlags = [ ];
+  cmakeFlags = [
+    # Link libcurl directly rather than possibly loading it at runtime,
+    # so we use the curl from our closure.
+    (lib.cmakeFeature "SENTRY_LINK_CURL" "ON")
+  ];
 
   outputs = [
     "out"

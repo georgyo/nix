@@ -526,7 +526,7 @@ void mainWrapped(int argc, char ** argv)
            so avoid the regular allocator. */
         sentry_options_set_on_crash(
             options,
-            [](const sentry_ucontext_t *, sentry_value_t event, void *) {
+            [](const sentry_ucontext_t *, sentry_value_t event, sentry_hint_t *, void *) {
                 auto tags = sentry_value_get_by_key(event, "tags");
                 if (sentry_value_is_null(tags)) {
                     tags = sentry_value_new_object();
