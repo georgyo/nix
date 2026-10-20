@@ -362,7 +362,9 @@ void BinaryCacheStore::addMultipleToStore(
 
     /* The NarInfos produced by uploading the NARs, to be consumed when
        writing the .narinfo files. Populated by the `UploadNar` nodes
-       and read by the corresponding `UploadNarInfo` nodes. */
+       and read by the corresponding `UploadNarInfo` nodes. A path has
+       no entry if its NAR wasn't uploaded because it was already
+       valid. */
     Sync<std::map<StorePath, ref<NarInfo>>> narInfos_;
 
     /* The work graph has two kinds of nodes: uploading the NAR for a
@@ -463,11 +465,13 @@ void BinaryCacheStore::addMultipleToStore(
                         showProgress();
                     },
                     [&](const UploadNarInfo & n) {
-                        auto & info = infosMap.at(n.path)->first;
-                        if (!repair && isValidPath(info.path))
-                            return;
-                        auto narInfo = narInfos_.lock()->at(n.path);
-                        uploadNarInfo(narInfo);
+                        /* Upload the .narinfo only if the `UploadNar`
+                           node uploaded the NAR, i.e. if the path wasn't
+                           valid then. Don't call `isValidPath()` again:
+                           its result may have changed in the meantime. */
+                        auto narInfo = narInfos_.lock()->extract(n.path);
+                        if (narInfo)
+                            uploadNarInfo(narInfo.mapped());
                     },
                 },
                 node);
