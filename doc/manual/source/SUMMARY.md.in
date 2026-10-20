@@ -122,6 +122,7 @@
     - [Store Path](protocols/json/store-path.md)
     - [Signature](protocols/json/signature.md)
     - [Store Object Info](protocols/json/store-object-info.md)
+    - [Provenance](protocols/json/provenance.md)
     - [Derivation](protocols/json/derivation/index.md)
       - [Resolved Derivation](protocols/json/derivation/resolved.md)
       - [Derivation Options](protocols/json/derivation/options.md)

@@ -36,7 +36,7 @@ $ nix provenance show /nix/store/9388r86smd1v928zp59rwrn43mm2z4id-hello
   }
 ```
 
-The metadata also appears under the `provenance` field in the output of [`nix path-info --json`](@docroot@/command-ref/new-cli/nix3-path-info.md).
+The metadata also appears under the [`provenance`](@docroot@/protocols/json/provenance.md) field in the output of [`nix path-info --json`](@docroot@/command-ref/new-cli/nix3-path-info.md).
 
 ## How `__meta` works
 

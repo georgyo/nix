@@ -185,10 +185,10 @@ $defs:
       provenance:
         oneOf:
           - type: "null"
-          - type: object # FIXME
+          - "$ref": "./provenance-v1.yaml"
         title: Provenance
         description: |
-          An arbitrary JSON object containing provenance information about the store object, or `null` if not available.
+          [Provenance](@docroot@/protocols/json/provenance.md) information about the store object, or `null` if not available.
 
     additionalProperties: false
 
@@ -277,9 +277,9 @@ $defs:
       provenance:
         oneOf:
           - type: "null"
-          - type: object # FIXME
+          - "$ref": "./provenance-v1.yaml"
         title: Provenance
         description: |
-          An arbitrary JSON object containing provenance information about the store object, or `null` if not available.
+          [Provenance](@docroot@/protocols/json/provenance.md) information about the store object, or `null` if not available.
 
     additionalProperties: false
