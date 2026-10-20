@@ -48,10 +48,15 @@ struct ActiveBuildInfo : ActiveBuild
         UserInfo user;
         std::vector<std::string> argv;
         std::optional<std::chrono::microseconds> utime, stime, cutime, cstime;
+        // Resident set size in bytes.
+        std::optional<uint64_t> rss;
     };
 
     // User/system CPU time for the entire cgroup, if available.
     std::optional<std::chrono::microseconds> utime, stime;
+
+    // Resident memory in bytes for the entire cgroup, if available.
+    std::optional<uint64_t> rss;
 
     std::vector<ProcessInfo> processes;
 };

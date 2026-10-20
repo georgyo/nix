@@ -39,6 +39,7 @@ out=$(nix ps)
 echo "$out"
 echo "$out" | grepQuiet 'nix-ps-test.drv'
 echo "$out" | grepQuiet 'sleep 600'
+echo "$out" | grepQuiet 'RSS'
 
 # Check the JSON output as well.
 json=$(nix ps --json)
@@ -48,6 +49,8 @@ echo "$json" | jq -e '.[0].mainPid | type == "number"' >/dev/null
 echo "$json" | jq -e '[.[0].processes[].argv | join(" ")] | any(. | test("bash"))' >/dev/null
 echo "$json" | jq -e '[.[0].processes[].argv | join(" ")] | any(. | test("sleep 600"))' >/dev/null
 echo "$json" | jq -e '.[0].processes | length == 2' >/dev/null
+echo "$json" | jq -e '.[0] | has("rss")' >/dev/null
+echo "$json" | jq -e '.[0].processes | all(.rss | type == "number" and . > 0)' >/dev/null
 
 # Release the build and wait for it to finish successfully.
 echo "done" > "$finish"

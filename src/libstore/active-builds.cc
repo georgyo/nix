@@ -73,6 +73,15 @@ static nlohmann::json printDuration(const std::optional<std::chrono::microsecond
                : nullptr;
 }
 
+// Optional because older daemons don't send these fields.
+static std::optional<uint64_t> parseOptionalUInt64(const json & j, const char * key)
+{
+    if (j.contains(key) && !j.at(key).is_null())
+        return getUnsigned(j.at(key));
+    else
+        return std::nullopt;
+}
+
 ActiveBuildInfo::ProcessInfo adl_serializer<ActiveBuildInfo::ProcessInfo>::from_json(const json & j)
 {
     return ActiveBuildInfo::ProcessInfo{
@@ -84,6 +93,7 @@ ActiveBuildInfo::ProcessInfo adl_serializer<ActiveBuildInfo::ProcessInfo>::from_
         .stime = parseDuration(j, "stime"),
         .cutime = parseDuration(j, "cutime"),
         .cstime = parseDuration(j, "cstime"),
+        .rss = parseOptionalUInt64(j, "rss"),
     };
 }
 
@@ -98,6 +108,7 @@ void adl_serializer<ActiveBuildInfo::ProcessInfo>::to_json(json & j, const Activ
         {"stime", printDuration(process.stime)},
         {"cutime", printDuration(process.cutime)},
         {"cstime", printDuration(process.cstime)},
+        {"rss", process.rss},
     };
 }
 
@@ -142,6 +153,7 @@ ActiveBuildInfo adl_serializer<ActiveBuildInfo>::from_json(const json & j)
     info.processes = j.at("processes").get<std::vector<ActiveBuildInfo::ProcessInfo>>();
     info.utime = parseDuration(j, "utime");
     info.stime = parseDuration(j, "stime");
+    info.rss = parseOptionalUInt64(j, "rss");
     return info;
 }
 
@@ -151,6 +163,7 @@ void adl_serializer<ActiveBuildInfo>::to_json(json & j, const ActiveBuildInfo & 
     j["processes"] = build.processes;
     j["utime"] = printDuration(build.utime);
     j["stime"] = printDuration(build.stime);
+    j["rss"] = build.rss;
 }
 
 } // namespace nlohmann
