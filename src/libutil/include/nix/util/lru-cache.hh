@@ -56,20 +56,29 @@ public:
      * Insert or upsert an item in the cache.
      */
     template<typename K>
-    void upsert(const K & key, const Value & value)
+    void upsert(const K & key, const Value & value) noexcept
     {
         if (capacity == 0)
             return;
 
-        erase(key);
+        if (auto i = data.find(key); i != data.end()) {
+            i->second.second = value;
+            promote(i->second.first.it);
+            return;
+        }
 
         if (data.size() >= capacity) {
-            /**
-             * Retire the oldest item.
-             */
+            /* Retire the oldest item, reusing its map and list nodes
+               for the new item. */
             auto oldest = lru.begin();
-            data.erase(*oldest);
-            lru.erase(oldest);
+            auto nh = data.extract(*oldest);
+            nh.key() = Key(key);
+            nh.mapped().second = value;
+            auto res = data.insert(std::move(nh));
+            assert(res.inserted);
+            *oldest = res.position;
+            promote(oldest);
+            return;
         }
 
         auto res = data.emplace(key, std::make_pair(LRUIterator(), value));
