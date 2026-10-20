@@ -583,8 +583,7 @@ void Executor::worker(Worker & self)
                 if (self.nrLiveFibers == 0)
                     return;
             } else if (!state->queue.empty() && canStartFiber(self)) {
-                item = std::move(state->queue.begin()->second);
-                state->queue.erase(state->queue.begin());
+                item = std::move(state->queue.extract(state->queue.begin()).mapped());
                 self.nrLiveFibers++;
                 state->nrLiveFibers++;
                 if (state->nrLiveFibers > maxLiveFibers)
