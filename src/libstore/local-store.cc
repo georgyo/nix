@@ -575,6 +575,16 @@ void LocalStore::openDB(State & state, bool create)
     std::string syncMode = config->getLocalSettings().fsyncMetadata ? "normal" : "off";
     db.exec("pragma synchronous = " + syncMode);
 
+    /* Keep SQLite's temporary storage in memory. Once one statement's
+       journal exceeds 64 KiB (e.g. deleting a path with many
+       references, which cascades into `Refs`), SQLite moves the
+       statement journal to a temporary file for the rest of the
+       transaction, so every later statement's journal costs syscalls.
+       In memory, only the largest single statement's journal is held,
+       and Nix's statements on this database never create sorter or
+       temporary b-tree objects. */
+    db.exec("pragma temp_store = memory");
+
     /* Set the SQLite journal mode.  WAL mode is fastest, so it's the
        default. */
     std::string mode = settings.useSQLiteWAL ? "wal" : "truncate";
