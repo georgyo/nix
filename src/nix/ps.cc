@@ -7,6 +7,7 @@
 #include "nix/util/table.hh"
 #include "nix/util/terminal.hh"
 #include "nix/util/base-nix-32.hh"
+#include "nix/util/file-system.hh"
 #include "nix/util/finally.hh"
 #include "nix/util/signals.hh"
 
@@ -114,9 +115,17 @@ static std::string abbreviateStorePaths(std::string_view s, std::string_view sto
     return res;
 }
 
-static std::string formatArgv(const ActiveBuildInfo::ProcessInfo & process)
+/**
+ * Format the command line of a process. If `stripProgramPath` is set, only show the base name of argv[0].
+ */
+static std::string formatArgv(const ActiveBuildInfo::ProcessInfo & process, bool stripProgramPath = false)
 {
-    return concatStringsSep(" ", tokenizeString<std::vector<std::string>>(concatStringsSep(" ", process.argv)));
+    auto argv = process.argv;
+    /* Don't touch argv[0] if it contains whitespace, since some processes overwrite their argv with a
+       free-form title (like "sshd: user"). */
+    if (stripProgramPath && !argv.empty() && argv[0].find_first_of(" \t\n") == std::string::npos)
+        argv[0] = baseNameOf(argv[0]);
+    return concatStringsSep(" ", tokenizeString<std::vector<std::string>>(concatStringsSep(" ", argv)));
 }
 
 /**
@@ -488,7 +497,7 @@ struct CmdTop : StoreCommand
                                  {"", TableCell::Alignment::Right},
                                  fmt("%s%s",
                                      prefix,
-                                     compact ? abbreviateStorePaths(formatArgv(process), store->storeDir)
+                                     compact ? abbreviateStorePaths(formatArgv(process, true), store->storeDir)
                                              : formatArgv(process))});
                         });
             }

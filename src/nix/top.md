@@ -11,8 +11,8 @@ R"(
   nixbld11  3534394  790.3  110.2s  438.6 MiB   48s  /nix/store/lzvdxlbr6xjd9w8py4nd2y2nnqb9gz7p-nix-util-tests-3.13.2.drv
   nixbld11  3534394    0.0    0.8s    3.9 MiB        └───bash -e /nix/store/jwqf79…-source-stdenv.sh
   nixbld11  3534751    1.5   36.3s    7.5 MiB            └───ninja -j24
-  nixbld11  3535637   98.0    4.1s  208.1 MiB                ├───/nix/store/0v2jfv…-gcc-14.3.0/bin/g++ -fPIC
-  nixbld11  3535658   99.5    3.0s  215.0 MiB                └───/nix/store/0v2jfv…-gcc-14.3.0/bin/g++ -fPIC
+  nixbld11  3535637   98.0    4.1s  208.1 MiB                ├───g++ -fPIC
+  nixbld11  3535658   99.5    3.0s  215.0 MiB                └───g++ -fPIC
   nixbld1   3534377   22.1    1.8s   16.2 MiB    5s  /nix/store/nh2dx9cqcy9lw4d4rvd0dbsflwdsbzdy-patchelf-0.18.0.drv
   nixbld1   3534377    0.0    1.8s    4.2 MiB        └───bash -e /nix/store/xk05lk…-default-builder.sh
   ```
@@ -41,8 +41,10 @@ The following keys are supported:
 * `PgUp`/`PgDn`: Scroll one page.
 * `Home`/`End`, `g`/`G`: Scroll to the top or bottom.
 * `t`, `Enter`: Toggle between showing the processes of each build and showing only the builds.
-* `c`: Toggle compact mode (enabled by default), which abbreviates the hash parts of store paths in command lines,
-  e.g. `/nix/store/2limljgc50jy76vg388ldgggcjhhkhav-gcc-15.2.0` is shown as `/nix/store/2limlj…-gcc-15.2.0`.
+* `c`: Toggle compact mode (enabled by default). This shows only the program name rather than the full path of
+  the executable of each process (e.g. `g++` instead of `/nix/store/…/bin/g++`), and abbreviates the hash parts of
+  other store paths in command lines (e.g. `/nix/store/2limljgc50jy76vg388ldgggcjhhkhav-gcc-15.2.0` is shown as
+  `/nix/store/2limlj…-gcc-15.2.0`).
 * `s`: Cycle the sort order of builds: by CPU usage, by RSS, by wall time, or by name.
 * `+`/`-`: Increase or decrease the refresh interval by 0.5 seconds (default 2 seconds).
 * `Space`: Refresh now.
