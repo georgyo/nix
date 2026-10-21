@@ -4,6 +4,8 @@ extend-exclude = [
   "doc/manual/theme/highlight.js",
   # Contributor names
   "doc/manual/source/release-notes/",
+  # Released Determinate Nix release notes
+  "doc/manual/source/release-notes-determinate/",
   "maintainers/data/release-credits-handle-to-name.json",
   # Keys
   "maintainers/keys/",
@@ -30,6 +32,10 @@ extend-identifiers = { COMMANDs = "COMMANDs" }
 [type.allow-msg_controllen]
 extend-glob = ["sender.c", "smuggler.c", "unix-domain-socket.cc"] # field of `struct msghdr`
 extend-identifiers = { msg_controllen = "msg_controllen" }
+
+[type.allow-numer]
+extend-glob = ["local-store-active-builds.cc"] # field of `mach_timebase_info_data_t`
+extend-identifiers = { numer = "numer" }
 
 [type.allow-gl_pathc]
 extend-glob = ["args.cc"] # field of `glob_t`
