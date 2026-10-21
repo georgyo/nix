@@ -80,7 +80,6 @@ bool createUserEnv(
 
             /* This is only necessary when installing store paths, e.g.,
                `nix-env -i /nix/store/abcd...-foo'. */
-            state.store->addTempRoot(*j.second);
             state.store->ensurePath(*j.second);
 
             references.insert(*j.second);
