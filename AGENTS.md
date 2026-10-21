@@ -23,3 +23,7 @@ Building and testing Nix:
 * Individual tests can be executed by doing `nix build ./packaging/nix-make#release.nix && nix run ./packaging/nix-make#test-runner -- --nix-bin-dir ./result/bin $TEST_NAMES`, where `TEST_NAMES` are the file names inside `tests/functional` (without the `.sh` suffix), e.g. `simple` or `flakes/relative-paths`.
 
 * If you don't need an optimized build (e.g. you're not benchmarking), then instead of `release` you can use `debug-fast` (clang with -O0), e.g. `nix build -L ./packaging/nix-make#debug-fast.nix`.
+
+Syncing this fork:
+
+* This checkout (pushed to `georgyo/nix` `master`) merges both Determinate Nix and upstream Nix. To sync it with them (a "rebase" in the user's words), follow `.claude/skills/sync-fork/SKILL.md`.
