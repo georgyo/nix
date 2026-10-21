@@ -6,6 +6,7 @@
 #include "nix/store/active-builds.hh"
 #include "nix/util/table.hh"
 #include "nix/util/terminal.hh"
+#include "nix/util/base-nix-32.hh"
 #include "nix/util/finally.hh"
 #include "nix/util/signals.hh"
 
@@ -79,6 +80,38 @@ static std::optional<uint64_t> getBuildRss(const ActiveBuildInfo & build)
 static TableCell formatRss(std::optional<uint64_t> rss)
 {
     return {rss ? renderSize(*rss) : "", TableCell::Alignment::Right};
+}
+
+/**
+ * Abbreviate the hash parts of store paths in `s`, e.g. `/nix/store/2limljgc50jy76vg388ldgggcjhhkhav-gcc-15.2.0`
+ * becomes `/nix/store/2limlj…-gcc-15.2.0`.
+ */
+static std::string abbreviateStorePaths(std::string_view s, std::string_view storeDir)
+{
+    constexpr size_t keep = 6;
+    auto prefix = std::string(storeDir) + "/";
+    std::string res;
+    size_t pos = 0;
+    while (true) {
+        auto i = s.find(prefix, pos);
+        if (i == s.npos)
+            break;
+        auto hashStart = i + prefix.size();
+        auto hashEnd = hashStart + StorePath::HashLen;
+        if (hashEnd < s.size() && s[hashEnd] == '-'
+            && std::ranges::all_of(
+                s.substr(hashStart, StorePath::HashLen),
+                [](char c) { return BaseNix32::lookupReverse(c).has_value(); })) {
+            res += s.substr(pos, hashStart + keep - pos);
+            res += "…";
+            pos = hashEnd;
+        } else {
+            res += s.substr(pos, hashStart - pos);
+            pos = hashStart;
+        }
+    }
+    res += s.substr(pos);
+    return res;
 }
 
 static std::string formatArgv(const ActiveBuildInfo::ProcessInfo & process)
@@ -299,6 +332,7 @@ struct CmdTop : StoreCommand
         std::chrono::milliseconds refreshInterval{2000};
         SortOrder sortOrder = SortOrder::Cpu;
         bool showTree = true;
+        bool compact = true;
         size_t scroll = 0;
         bool clearScreen = true;
 
@@ -452,7 +486,10 @@ struct CmdTop : StoreCommand
                                  {cpuTime ? formatCpuTime(*cpuTime) : "", TableCell::Alignment::Right},
                                  formatRss(process.rss),
                                  {"", TableCell::Alignment::Right},
-                                 fmt("%s%s", prefix, formatArgv(process))});
+                                 fmt("%s%s",
+                                     prefix,
+                                     compact ? abbreviateStorePaths(formatArgv(process), store->storeDir)
+                                             : formatArgv(process))});
                         });
             }
 
@@ -502,7 +539,7 @@ struct CmdTop : StoreCommand
 
             /* Footer. */
             auto footer =
-                fmt(ANSI_FAINT "q quit  ↑↓ PgUp PgDn scroll  t tree  s sort (%s)  +/- refresh (%.1fs)",
+                fmt(ANSI_FAINT "q quit  ↑↓ PgUp PgDn scroll  t tree  c compact  s sort (%s)  +/- refresh (%.1fs)",
                     sortNames[static_cast<size_t>(sortOrder)],
                     std::chrono::duration<double>(refreshInterval).count());
             if (bodySize > bodyHeight)
@@ -535,6 +572,7 @@ struct CmdTop : StoreCommand
             Home,
             End,
             ToggleTree,
+            ToggleCompact,
             Sort,
             Faster,
             Slower,
@@ -593,6 +631,8 @@ struct CmdTop : StoreCommand
             case '\r':
             case '\n':
                 return Key::ToggleTree;
+            case 'c':
+                return Key::ToggleCompact;
             case 's':
                 return Key::Sort;
             case '+':
@@ -695,6 +735,9 @@ struct CmdTop : StoreCommand
                     break;
                 case Key::ToggleTree:
                     showTree = !showTree;
+                    break;
+                case Key::ToggleCompact:
+                    compact = !compact;
                     break;
                 case Key::Sort:
                     sortOrder = static_cast<SortOrder>((static_cast<int>(sortOrder) + 1) % sortNames.size());
