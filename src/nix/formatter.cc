@@ -59,11 +59,6 @@ struct CmdFormatterRun : MixFormatter, MixJSON
             ;
     }
 
-    Category category() override
-    {
-        return catSecondary;
-    }
-
     void run(ref<Store> store) override
     {
         auto evalState = getEvalState();
@@ -119,11 +114,6 @@ struct CmdFormatterBuild : MixFormatter, MixOutLinkByDefault
         return
 #include "formatter-build.md"
             ;
-    }
-
-    Category category() override
-    {
-        return catSecondary;
     }
 
     void run(ref<Store> store) override
