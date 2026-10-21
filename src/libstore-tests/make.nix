@@ -25,12 +25,14 @@ let
 
     root = ./.;
 
-    # The benchmarks (Meson option `benchmarks`, off by default).
+    # The benchmarks (Meson option `benchmarks`, off by default) and the
+    # fuzz harnesses (Meson option `fuzzers`, off by default).
     excludeSources = [
       "bench-main.cc"
-      "derivation-parser-bench.cc"
+      "derivation/parser-bench.cc"
       "ref-scan-bench.cc"
       "register-valid-paths-bench.cc"
+      "fuzz"
     ];
 
     includeDirs = [ "" ];

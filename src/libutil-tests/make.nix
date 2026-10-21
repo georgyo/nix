@@ -25,6 +25,13 @@ let
 
     root = ./.;
 
+    # Darwin-only tests, and the fuzz harnesses (Meson option `fuzzers`,
+    # off by default).
+    excludeSources = [
+      "darwin"
+      "fuzz"
+    ];
+
     includeDirs = [ "" ];
 
     files = nixMake.commonSupportFiles;
