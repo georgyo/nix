@@ -292,6 +292,10 @@
           nix-eval-jobs = nixpkgsFor.${system}.native.callPackage ./packaging/nix-eval-jobs.nix {
             nixComponents = nixComponentsFor.${system}.native;
           };
+          # nix-fast-build from Nixpkgs, running the nix-eval-jobs and Nix above.
+          nix-fast-build = nixpkgsFor.${system}.native.nix-fast-build.override {
+            inherit (self.packages.${system}) nix-eval-jobs;
+          };
           inherit (nixComponentsFor.${system}.native)
             nix-manual
             nix-manual-manpages-only

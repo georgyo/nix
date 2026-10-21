@@ -7,7 +7,7 @@ user-invocable: true
 
 # Syncing the fork with Determinate Nix and upstream Nix
 
-This checkout combines Determinate Nix and upstream Nix, plus a few fork-only commits (e.g. the `nix-eval-jobs` flake output). The history is merge-based. When the user says "rebase", they mean this merge sync: never rebase or rewrite `main`.
+This checkout combines Determinate Nix and upstream Nix, plus a few fork-only commits (e.g. the `nix-eval-jobs` and `nix-fast-build` flake outputs). The history is merge-based. When the user says "rebase", they mean this merge sync: never rebase or rewrite `main`.
 
 Copy this checklist and check off items as you complete them:
 
@@ -17,7 +17,7 @@ Copy this checklist and check off items as you complete them:
 - [ ] Step 2: Merge upstream/master (upstream Nix)
 - [ ] Step 3: Fix the build of things that merged cleanly but broke
 - [ ] Step 4: Build and run all tests with nix-make
-- [ ] Step 5: Run `nix flake check` and build nix-eval-jobs
+- [ ] Step 5: Run `nix flake check` and build nix-eval-jobs and nix-fast-build
 - [ ] Step 6: Format, commit fixes, push
 ```
 
@@ -92,7 +92,7 @@ build/src/nix/nix build -L --extra-experimental-features wasm-builtin ./packagin
 
 Pass `--keep-going` to see all failures at once. Expected output of upstream's `lang` tests can include trace lines from upstream evaluator features that Determinate's evaluator doesn't have (e.g. "… entering the infinite recursion", which relies on upstream's `handleEvalExceptionForThunk()`). If a new test fails only on such a line, and the test still checks what it was written for, drop the line from its `.err.exp`, as was done for the existing tests. If an earlier attempt failed to evaluate, pass `--no-eval-cache` ("cached failed attribute ... unexpectedly succeeded"). To iterate on single failing tests, use the `test-runner` from AGENTS.md. Known environment-only failure: the `ps` functional test fails when builds are offloaded to eu.nixbuild.net (no `/proc/<pid>/task/<pid>/children`); it passes locally.
 
-## Step 5: `nix flake check` and nix-eval-jobs
+## Step 5: `nix flake check`, nix-eval-jobs and nix-fast-build
 
 Run `nix flake check -L` (with the freshly built nix). It runs Determinate's flake checks, e.g. the functional tests with lazy trees enabled. A test that inspects `nix flake metadata --json | jq .path` fails with lazy trees (`path` is null); guard it with `if [[ $(nix config show lazy-trees) = false ]]`, as other tests do.
 
@@ -106,6 +106,8 @@ Build `nix build -L .#nix-eval-jobs`. It is the Determinate nix-eval-jobs fork p
   nix shell --impure --expr 'with import (builtins.getFlake "nixpkgs") {}; python3.withPackages (p: [ p.pytest ])' \
     -c bash -c 'PATH=<repo>/build/src/nix:$PATH NIX_EVAL_JOBS_BIN=<nix-eval-jobs out>/bin/nix-eval-jobs python3 -m pytest -q'
   ```
+
+Then build `nix build -L .#nix-fast-build`. It is Nixpkgs' nix-fast-build with `nix-eval-jobs` overridden to the one above, so its wrapper puts that nix-eval-jobs and its Nix (`nix-eval-jobs.nix`) on `PATH`. Smoke test it on a tiny flake in the scratchpad (a few `derivation`s with `builder = "/bin/sh"` under `checks.<system>`): `<out>/bin/nix-fast-build --flake .#checks --no-nom --no-link` must build them all and exit 0.
 
 ## Step 6: Format, commit and push
 
