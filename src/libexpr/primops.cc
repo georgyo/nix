@@ -1046,21 +1046,44 @@ static void prim_addErrorContext(EvalState & state, CallSite callSite, Value * c
     /* Evaluate the message outside of the catch handler: it may force
        thunks and thereby suspend the current fiber, which is not
        allowed while an exception is being handled. */
-    NixStringContext context;
-    auto message = state
-                       .coerceToString(
-                           noPos,
-                           *args[0],
-                           context,
-                           "while evaluating the error message passed to builtins.addErrorContext",
-                           false,
-                           false)
-                       .toOwned();
+    std::optional<std::string> message;
+    std::exception_ptr contextError;
+    try {
+        NixStringContext context;
+        message = state
+                      .coerceToString(
+                          noPos,
+                          *args[0],
+                          context,
+                          "while evaluating the error message passed to builtins.addErrorContext",
+                          false,
+                          false)
+                      .toOwned();
+    } catch (Error &) {
+        contextError = std::current_exception();
+    }
 
     try {
         std::rethrow_exception(error);
     } catch (Error & e) {
-        e.addTrace(nullptr, HintFmt(message), TracePrint::Always);
+        /* Rethrow `e` itself, also if evaluating the message in `args[0]`
+           failed, to preserve the type of `e`. The type decides whether
+           `tryEval` catches the error; see the documentation of `tryEval`,
+           `throw` and `abort`. */
+        if (message)
+            e.addTrace(nullptr, HintFmt(*message), TracePrint::Always);
+        else {
+            try {
+                std::rethrow_exception(contextError);
+            } catch (Error & contextError) {
+                e.addTrace(
+                    std::shared_ptr<const Pos>(contextError.info().pos),
+                    HintFmt(
+                        "while evaluating the error message passed to builtins.addErrorContext, another error occurred: %s",
+                        contextError.info().msg),
+                    TracePrint::Always);
+            }
+        }
         throw;
     }
 }
@@ -1079,6 +1102,8 @@ static RegisterPrimOp primop_addErrorContext(
             when the evaluation of *value* fails.
             The additional context is applied when evaluating *value* itself fails,
             not when attributes or elements of *value* are evaluated.
+
+            If evaluating *context* fails as well, the error from *value* propagates to the caller unchanged.
 
             For example, the module system from nixpkgs uses this to show
             the relevant information about the options that were evaluating

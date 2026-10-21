@@ -129,6 +129,8 @@
             # TODO: enable once our GitHub workflows pass zizmor's audits.
             enable = false;
           };
+          # Configured in `.typos.toml`
+          typos.enable = true;
         };
       };
     };
