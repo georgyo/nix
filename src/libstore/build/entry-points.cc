@@ -93,6 +93,10 @@ BuildResult Store::buildDerivation(const StorePath & drvPath, const BasicDerivat
 
 void Store::ensurePath(const StorePath & path)
 {
+    /* Protect existing paths too, before checking validity so that GC cannot
+       delete the path between the check and registering the root. */
+    addTempRoot(path);
+
     /* If the path is already valid, we're done. */
     if (isValidPath(path))
         return;
