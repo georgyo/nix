@@ -13,8 +13,6 @@ error:
              |     ^
             7|   };
 
-       … entering the infinite recursion
-
        … while evaluating a branch condition
          at /pwd/lang/eval-fail-tryEval-addErrorContext-infinite-recursion.nix:6:12:
             5|   n = {
