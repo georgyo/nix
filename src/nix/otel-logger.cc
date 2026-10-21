@@ -579,17 +579,16 @@ public:
                 return;
             if (ignoredActs.erase(act))
                 return;
-            auto spans(spans_.lock());
-            if (auto i = spans->find(act); i != spans->end()) {
+            /* End the span after releasing the lock. */
+            if (auto i = spans_.lock()->extract(act)) {
+                auto & span = i.mapped();
                 /* If the activity is being stopped while an exception
                    is in flight, i.e. the `Activity` is being destroyed
                    by stack unwinding, assume that the activity
                    failed. */
                 if (std::uncaught_exceptions())
-                    i->second->SetStatus(
-                        opentelemetry::trace::StatusCode::kError, "activity terminated by an exception");
-                i->second->End();
-                spans->erase(i);
+                    span->SetStatus(opentelemetry::trace::StatusCode::kError, "activity terminated by an exception");
+                span->End();
             }
         } catch (...) {
         }

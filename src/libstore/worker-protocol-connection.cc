@@ -16,23 +16,23 @@ WorkerProto::BasicClientConnection::~BasicClientConnection()
     }
 }
 
-static auto readFields(Source & from)
+static Logger::Field readField(Source & from)
+{
+    auto type = readInt(from);
+    if (type == 0)
+        return readNum<uint64_t>(from);
+    else if (type == 1)
+        return readString(from);
+    else
+        throw Error("got unsupported field type %x from Nix daemon", (int) type);
+}
+
+static std::vector<Logger::Field> readFields(Source & from)
 {
     std::vector<Logger::Field> fields;
     size_t size = readInt(from);
-    for (size_t n = 0; n < size; n++) {
-        auto type = readInt(from);
-        switch (type) {
-        case 0:
-            fields.push_back(readNum<uint64_t>(from));
-            break;
-        case 1:
-            fields.push_back(readString(from));
-            break;
-        default:
-            throw Error("got unsupported field type %x from Nix daemon", (int) type);
-        }
-    }
+    for (size_t n = 0; n < size; n++)
+        fields.push_back(readField(from));
     return fields;
 }
 
@@ -90,6 +90,23 @@ WorkerProto::BasicClientConnection::processStderrReturn(Sink * sink, Source * so
             auto parent = readNum<ActivityId>(from);
             RemoteLogSource remoteLogSource;
             logger->startActivity(act, lvl, type, s, fields, parent);
+        }
+
+        else if (msg == STDERR_START_ACTIVITY_STRINGLY) {
+            auto act = readNum<ActivityId>(from);
+            auto lvl = (Verbosity) readInt(from);
+            auto name = readString(from);
+            auto s = readString(from);
+            std::vector<std::pair<std::string, Logger::Field>> metadata;
+            size_t size = readInt(from);
+            for (size_t n = 0; n < size; n++) {
+                auto key = readString(from);
+                metadata.emplace_back(std::move(key), readField(from));
+            }
+            auto parent = readNum<ActivityId>(from);
+            RemoteLogSource remoteLogSource;
+            std::vector<std::pair<std::string_view, Logger::Field>> metadataRefs(metadata.begin(), metadata.end());
+            logger->startActivity(act, lvl, name, metadataRefs, s, parent);
         }
 
         else if (msg == STDERR_STOP_ACTIVITY) {

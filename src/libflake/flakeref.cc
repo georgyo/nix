@@ -89,8 +89,9 @@ FlakeRef parseFlakeRef(
 
 static std::pair<FlakeRef, std::string> fromParsedURL(ParsedURL && parsedURL, bool isFlake)
 {
-    auto dir = getOr(parsedURL.query, "dir", "");
-    parsedURL.query.erase("dir");
+    std::string dir;
+    if (auto i = parsedURL.query.extract("dir"))
+        dir = std::move(i.mapped());
 
     std::string fragment;
     std::swap(fragment, parsedURL.fragment);

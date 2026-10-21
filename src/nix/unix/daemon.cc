@@ -1,5 +1,6 @@
 ///@file
 
+#include "nix/util/current-process.hh"
 #include "nix/util/signals.hh"
 #include "nix/cmd/command.hh"
 #include "nix/main/shared.hh"
@@ -400,7 +401,6 @@ static void daemonLoop(
                 ProcessOptions options;
                 options.errorPrefix = "unexpected Nix daemon error: ";
                 options.dieWithParent = false;
-                options.runExitHandlers = true;
                 startProcess(
                     [&, storeConfig, closeListeners = std::move(closeListeners)]() {
                         setInterrupted(false);
@@ -421,24 +421,35 @@ static void daemonLoop(
                         }
 
                         // Handle the connection.
-                        auto store = storeConfig->openStore();
-                        store->init();
-                        processConnection(
-                            std::move(store),
-                            FdSource(remote.get()),
-                            FdSink(remote.get()),
-                            trusted,
-                            RecursiveFlag::NotRecursive,
-                            nullptr,
-                            setupConnectionTelemetry);
+                        std::exception_ptr error;
+                        try {
+                            auto store = storeConfig->openStore();
+                            store->init();
+                            processConnection(
+                                std::move(store),
+                                FdSource(remote.get()),
+                                FdSink(remote.get()),
+                                trusted,
+                                RecursiveFlag::NotRecursive,
+                                nullptr,
+                                setupConnectionTelemetry);
+                        } catch (...) {
+                            error = std::current_exception();
+                        }
 
                         /* End the connection span and export all
-                           telemetry. This has to be done explicitly,
-                           since exit() does not unwind the stack. */
+                           telemetry, also if the connection failed.
+                           This has to be done explicitly, since we
+                           don't unwind the stack or run destructors
+                           on exit. */
                         logger->stop();
                         logger->flush();
 
-                        exit(0);
+                        /* Reported by startProcess(). */
+                        if (error)
+                            std::rethrow_exception(error);
+
+                        quickExit(0);
                     },
                     options);
             });

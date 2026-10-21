@@ -553,7 +553,17 @@ struct CmdFlakeCheck : FlakeCommand, MixPrintOutPaths, MixOutLinkBase, MixFlakeS
             Activity act(*logger, lvlInfo, actUnknown, fmt("running %d flake checks", toBuild.size()));
 
             auto buildResults = store->getBuilder()->buildPathsWithResults(toBuild);
-            assert(buildResults.size() == toBuild.size());
+
+            /* Daemons running upstream Nix >= 2.34 omit the results of
+               goals that were cancelled or never started (which happens
+               when another goal fails), so treat a missing result as a
+               cancellation. */
+            std::set<DerivedPath> returnedPaths;
+            for (auto & buildResult : buildResults)
+                returnedPaths.insert(buildResult.path);
+            for (auto & path : toBuild)
+                if (!returnedPaths.contains(path))
+                    buildResults.emplace_back(BuildResult{BuildError(BuildResult::Failure::Cancelled, "")}, path);
 
             for (auto & buildResult : buildResults) {
                 if (auto failure = buildResult.tryGetFailure())

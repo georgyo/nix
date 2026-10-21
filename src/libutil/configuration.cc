@@ -51,23 +51,20 @@ void Config::addSetting(AbstractSetting * setting)
 
     bool set = false;
 
-    if (auto i = unknownSettings.find(setting->name); i != unknownSettings.end()) {
-        setting->set(std::move(i->second));
+    if (auto i = unknownSettings.extract(setting->name)) {
+        setting->set(std::move(i.mapped()));
         setting->overridden = true;
-        unknownSettings.erase(i);
         set = true;
     }
 
     for (auto & alias : setting->aliases) {
-        if (auto i = unknownSettings.find(alias); i != unknownSettings.end()) {
-            if (set)
+        if (set) {
+            if (unknownSettings.contains(alias))
                 warn("setting '%s' is set, but it's an alias of '%s' which is also set", alias, setting->name);
-            else {
-                setting->set(std::move(i->second));
-                setting->overridden = true;
-                unknownSettings.erase(i);
-                set = true;
-            }
+        } else if (auto i = unknownSettings.extract(alias)) {
+            setting->set(std::move(i.mapped()));
+            setting->overridden = true;
+            set = true;
         }
     }
 }

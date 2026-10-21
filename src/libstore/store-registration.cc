@@ -5,6 +5,8 @@
 #include "nix/store/globals.hh"
 #include "nix/util/environment-variables.hh"
 #include "nix/util/thread-pool.hh"
+#include "nix/util/current-process.hh"
+#include "nix/util/sync.hh"
 
 #include <filesystem>
 
@@ -114,7 +116,11 @@ ref<StoreConfig> resolveStoreConfig(StoreReference && storeURI)
 
 std::list<ref<Store>> getDefaultSubstituters()
 {
-    static auto stores([]() {
+    static Sync<std::optional<std::list<ref<Store>>>> stores_;
+
+    auto stores(stores_.lock());
+
+    if (!*stores) {
         std::set<StoreReference> done;
         std::vector<StoreReference> refs;
         for (const auto & ref : settings.getWorkerSettings().substituters.get())
@@ -145,17 +151,23 @@ std::list<ref<Store>> getDefaultSubstituters()
             });
         pool.process();
 
-        std::list<ref<Store>> stores;
+        std::list<ref<Store>> res;
         for (auto & store : opened)
             if (store)
-                stores.push_back(ref<Store>(store));
+                res.push_back(ref<Store>(store));
 
-        stores.sort([](ref<Store> & a, ref<Store> & b) { return a->config.priority < b->config.priority; });
+        res.sort([](ref<Store> & a, ref<Store> & b) { return a->config.priority < b->config.priority; });
 
-        return stores;
-    }());
+        *stores = std::move(res);
 
-    return stores;
+        /* Close the substituters on exit, since they may own
+           resources that need cleaning up (e.g. SSH master
+           processes). The stores are destroyed outside of the
+           lock. */
+        atQuickExit([]() { auto stores = std::exchange(*stores_.lock(), std::nullopt); });
+    }
+
+    return **stores;
 }
 
 Implementations::Map & Implementations::registered()

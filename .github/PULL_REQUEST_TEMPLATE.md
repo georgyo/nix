@@ -1,13 +1,11 @@
 ## Motivation
 
-<!-- Briefly explain what the change is about and why it is desirable. -->
+<!-- Why is this change needed? E.g. the bug it fixes or the feature it adds. Link related issues if there are any. -->
 
-## Context
+## Implementation
 
-<!-- Provide context. Reference open issues if available. -->
-
-<!-- Non-trivial change: Briefly outline the implementation strategy. -->
+<!-- How does this PR do it? Briefly describe the approach. -->
 
 <!-- Invasive change: Discuss alternative designs or approaches you considered. -->
 
-<!-- Large change: Provide instructions to reviewers how to read the diff. -->
+<!-- Large change: Tell reviewers how to read the diff, e.g. which commits or files to look at first. -->

@@ -94,9 +94,7 @@ static const char * makeImmutableString(std::string_view s)
 
 StringData & StringData::alloc(EvalMemory & mem, size_t size)
 {
-    void * t = mem.allocBytes(sizeof(StringData) + size + 1);
-    if (!t)
-        outOfMemory();
+    void * t = mem.allocBytes<char, sizeof(StringData) + 1>(size);
     auto res = new (t) StringData(size);
     return *res;
 }
@@ -948,7 +946,7 @@ Value::StringWithContext::Context::fromBuilder(const NixStringContext & context,
     if (context.empty())
         return nullptr;
 
-    auto ctx = new (mem.allocBytes(sizeof(Context) + context.size() * sizeof(value_type))) Context(context.size());
+    auto ctx = new (mem.allocBytes<value_type, sizeof(Context)>(context.size())) Context(context.size());
     std::ranges::transform(
         context, ctx->elems, [&](const NixStringContextElem & elt) { return &StringData::make(mem, elt.to_string()); });
     return ctx;
@@ -1004,7 +1002,7 @@ void Value::mkPath(const SourcePath & path, EvalMemory & mem)
 
 ListBuilder::ListBuilder(EvalMemory & mem, size_t size)
     : size(size)
-    , elems(size <= 2 ? inlineElems : (Value **) mem.allocBytes(size * sizeof(Value *)))
+    , elems(size <= 2 ? inlineElems : (Value **) mem.allocBytes<Value *>(size))
 {
 }
 
@@ -1518,6 +1516,8 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 
     e->eval(state, env, vTmp, "while selecting an attribute");
 
+    std::exception_ptr error;
+
     try {
         auto dts = state.debugRepl ? makeDebugTraceStacker(
                                          state,
@@ -1560,21 +1560,34 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 
         state.forceValue(*vAttrs, (attrPos ? attrPos : this->pos));
 
-    } catch (Error & e) {
-        // Traces are printed in reverse, so we add context before the main item.
+    } catch (Error &) {
+        error = std::current_exception();
+    }
+
+    if (error) {
+        /* Show the attribute paths outside of the catch handler: they
+           evaluate dynamic attribute names, which may force thunks
+           and thereby suspend the current fiber, which is not allowed
+           while an exception is being handled. */
+        std::optional<std::string> successPath;
         if (attrPos) {
             auto attrPosR = state.positions[attrPos];
             auto origin = std::get_if<SourcePath>(&attrPosR.origin);
-            if (!(origin && *origin == state.derivationInternal)) {
-                auto successPath =
+            if (!(origin && *origin == state.derivationInternal))
+                successPath =
                     showAttrSelectionPath(state, env, std::span<const AttrName>(attrPathStart, unresolvedOrEnd));
-                state.addErrorTrace(e, attrPos, "from the definition of '%1%'", successPath);
-            }
         }
-        // Add main item: the selection site itself (`a.b`), ie the actual access
-        state.addErrorTrace(
-            e, getPos(), "while evaluating the attribute '%1%'", showAttrSelectionPath(state, env, getAttrPath()));
-        throw;
+        auto attrPath = showAttrSelectionPath(state, env, getAttrPath());
+        try {
+            std::rethrow_exception(error);
+        } catch (Error & e) {
+            // Traces are printed in reverse, so we add context before the main item.
+            if (successPath)
+                state.addErrorTrace(e, attrPos, "from the definition of '%1%'", *successPath);
+            // Add main item: the selection site itself (`a.b`), ie the actual access
+            state.addErrorTrace(e, getPos(), "while evaluating the attribute '%1%'", attrPath);
+            throw;
+        }
     }
 
     v = *vAttrs;

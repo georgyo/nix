@@ -32,6 +32,7 @@
 #include "otel-logger.hh"
 #include "cli-config-private.hh"
 
+#include <charconv>
 #include <sys/types.h>
 #include <nlohmann/json.hpp>
 #if HAVE_SENTRY
@@ -48,10 +49,15 @@
 #  include <netdb.h>
 #  include <netinet/in.h>
 #  include <signal.h>
+#  include <sys/resource.h>
 #endif
 
 #ifdef __linux__
 #  include "nix/util/linux-namespaces.hh"
+#endif
+
+#ifdef __APPLE__
+#  include <mach/mach.h>
 #endif
 
 #include "nix/util/strings.hh"
@@ -495,17 +501,59 @@ void mainWrapped(int argc, char ** argv)
         }
     }
 
+    /* Sentry needs an absolute path for its database. Otherwise we'd
+       create a `.cache/nix/sentry` directory in the current directory
+       (or `.sentry-native` if we don't set a path at all). */
+    std::optional<std::filesystem::path> sentryDatabaseDir;
     if (sentryEndpoint && sentryEndpoint != "") {
+        try {
+            auto dir = getCacheDir() / "sentry";
+            if (dir.is_absolute())
+                sentryDatabaseDir = std::move(dir);
+        } catch (...) {
+            ignoreExceptionExceptInterrupt(lvlDebug);
+        }
+    }
+
+    if (sentryDatabaseDir) {
         sentry_options_t * options = sentry_options_new();
         sentry_options_set_dsn(options, sentryEndpoint->c_str());
-        sentry_options_set_database_path(options, (getCacheDir() / "sentry").string().c_str());
+        sentry_options_set_database_path(options, sentryDatabaseDir->string().c_str());
         sentry_options_set_release(options, fmt("nix@%s", determinateNixVersion).c_str());
         sentry_options_set_traces_sample_rate(options, 0);
         sentry_options_set_auto_session_tracking(options, false);
         sentry_options_set_handler_path(options, CRASHPAD_HANDLER_PATH);
+        /* Record the Nix call depth in crash reports, to help
+           diagnose stack overflows (e.g. whether we overflowed before
+           reaching `max-call-depth`). This runs in the signal handler,
+           so avoid the regular allocator. */
+        sentry_options_set_on_crash(
+            options,
+            [](const sentry_ucontext_t *, sentry_value_t event, sentry_hint_t *, void *) {
+                auto tags = sentry_value_get_by_key(event, "tags");
+                if (sentry_value_is_null(tags)) {
+                    tags = sentry_value_new_object();
+                    sentry_value_set_by_key(event, "tags", tags);
+                }
+                char buf[24];
+                auto res = std::to_chars(buf, buf + sizeof(buf), CallDepth::callDepth);
+                sentry_value_set_by_key(tags, "call_depth", sentry_value_new_string_n(buf, res.ptr - buf));
+                return event;
+            },
+            nullptr);
         sentry_init(options);
         setSentryTag = [](const char * key, const char * value) { sentry_set_tag(key, value); };
         setSentryTag("nix_command", argc > 0 ? std::string(baseNameOf(argv[0])).c_str() : "");
+#  ifndef _WIN32
+        /* Record the stack size hard limit, to help diagnose stack
+           overflows: if it's lower than what the evaluator asks for
+           via `ensureStackSizeAtLeast()`, the stack can't be grown to
+           that size. */
+        if (struct rlimit limit; getrlimit(RLIMIT_STACK, &limit) == 0)
+            setSentryTag(
+                "stack_hard_limit",
+                limit.rlim_max == RLIM_INFINITY ? "unlimited" : std::to_string(limit.rlim_max).c_str());
+#  endif
         std::set_terminate(terminateHandler);
         sentryEnabled = true;
 
@@ -516,7 +564,24 @@ void mainWrapped(int argc, char ** argv)
         struct sigaction act;
         sigemptyset(&act.sa_mask);
         act.sa_flags = 0;
+#  ifdef __APPLE__
+        /* On macOS, crashpad doesn't catch crashes via signal
+           handlers, but via the task's Mach exception ports, and the
+           kernel sends EXC_CRASH to those when the process is killed
+           by a signal that dumps core, such as SIGQUIT, even if its
+           disposition is SIG_DFL. So detach crashpad's exception
+           ports (like restoreProcessContext() does) before dying from
+           SIGQUIT. The re-raised signal is delivered when the handler
+           returns. */
+        act.sa_handler = [](int) {
+            task_set_exception_ports(
+                mach_task_self(), EXC_MASK_ALL | EXC_MASK_CRASH, MACH_PORT_NULL, EXCEPTION_DEFAULT, THREAD_STATE_NONE);
+            signal(SIGQUIT, SIG_DFL);
+            raise(SIGQUIT);
+        };
+#  else
         act.sa_handler = SIG_DFL;
+#  endif
         if (sigaction(SIGQUIT, &act, 0))
             throw SysError("handling SIGQUIT");
     }
@@ -767,5 +832,9 @@ int main(int argc, char ** argv)
     // The CLI has a more detailed version than the libraries; see nixVersion.
     nix::nixVersion = NIX_CLI_VERSION;
 
-    return nix::handleExceptions(argv[0], [&]() { nix::mainWrapped(argc, argv); });
+    auto status = nix::handleExceptions(argv[0], [&]() { nix::mainWrapped(argc, argv); });
+
+    /* Don't run static destructors, since they race with threads
+       that may still be running. */
+    nix::quickExit(status);
 }

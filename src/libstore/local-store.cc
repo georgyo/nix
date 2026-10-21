@@ -177,7 +177,6 @@ LocalStore::LocalStore(ref<const Config> config)
     , reservedPath(dbDir / "reserved")
     , schemaPath(dbDir / "schema")
     , tempRootsDir(config->stateDir.get() / "temproots")
-    , fnTempRoots(tempRootsDir / std::to_string(getpid()))
     , activeBuildsDir(config->stateDir.get() / "active-builds")
 {
     auto state(_state->lock());
@@ -499,10 +498,13 @@ LocalStore::~LocalStore()
     }
 
     try {
-        auto fdTempRoots(_fdTempRoots.lock());
-        if (*fdTempRoots) {
-            fdTempRoots->close();
-            tryUnlink(fnTempRoots);
+        auto tempRootsFile(_tempRootsFile.lock());
+        if (tempRootsFile->fd) {
+            /* Delete the file before closing it, i.e. while we still
+               hold the lock, to guarantee that nobody else has
+               replaced it. */
+            tryUnlink(tempRootsFile->path);
+            tempRootsFile->fd.close();
         }
     } catch (...) {
         ignoreExceptionInDestructor();
@@ -1163,8 +1165,12 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
 
     auto realPath = toRealPath(info.path);
 
-    // TODO: make repair more safe: write to a temporary location first before renaming/deleting.
-    deletePath(realPath);
+    /* We'll restore to a temporary location accessible only to us first, confirm that
+       the narHash/narSize/ca match after restoration and only then move the path into
+       the expected location. */
+    auto [tempDir, tempDirFd] = createTempDirInStore();
+    AutoDelete delTempDir(tempDir);
+    std::filesystem::path tempPath = tempDir / "x";
 
     /* Maybe free up some disk space (before writing the NAR) so that
        restorePath() below doesn't fail with ENOSPC. */
@@ -1177,7 +1183,7 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
     TeeSource wrapperSource{source, hashSink};
     auto canonicalisingRestoreHooks = makeCanonicalisingRestoreHooks(NIX_WHEN_SUPPORT_ACLS2(localSettings.ignoredAcls));
 
-    restorePath(realPath, wrapperSource, localSettings.fsyncStorePaths, canonicalisingRestoreHooks.get());
+    restorePath(tempPath, wrapperSource, localSettings.fsyncStorePaths, canonicalisingRestoreHooks.get());
 
     auto hashResult = hashSink.finish();
 
@@ -1198,7 +1204,7 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
     if (info.ca) {
         auto & specified = *info.ca;
         auto actualHash = ({
-            SourcePath sourcePath = requireStoreObjectAccessor(info.path, /*requireValidPath=*/false);
+            SourcePath sourcePath = {makeFSSourceAccessor(tempPath)};
             Hash h{HashAlgorithm::SHA256}; // throwaway def to appease C++
             auto fim = specified.method.getFileIngestionMethod();
             switch (fim) {
@@ -1230,6 +1236,33 @@ void LocalStore::doAddToStore(const ValidPathInfo & info, Source & source, Repai
         }
     }
 
+    /* Now that the content address / signed NAR contents is checked, we can move the path into place.
+       TODO: We should use atomic exchange (RENAME_EXCHANGE and renamex_np with RENAME_SWAP) if possible. */
+
+    /* Delete the path for good measure even if not repairing. */
+    deletePath(realPath);
+
+    try {
+        /* movePath and not renameFile because at this point the top-level directory is
+           read-only. */
+        movePath(tempPath, realPath);
+    } catch (const SystemError & e) {
+        if (!e.is(std::errc::cross_device_link))
+            throw;
+
+        /* Apparently this can happen even on the same filesystem (and the paths that are renamed above
+           are on the same filesystem) with overlayfs https://github.com/NixOS/nix/issues/6262.
+           Since we couldn't rename, this won't be atomic and we have to gradually copy to the realPath. */
+        warn("can't rename %s as %s, copying instead", PathFmt(tempPath), PathFmt(realPath));
+        RestoreSink copySink{/*startFsync=*/false, /*hooks=*/canonicalisingRestoreHooks.get()};
+        copySink.dstPath = realPath;
+        copyRecursive(*makeFSSourceAccessor(tempPath), CanonPath::root, copySink, CanonPath::root);
+    }
+
+    /* Clean up the staging directory. */
+    delTempDir.deletePath();
+    tempDirFd.close();
+
     optimisePath(realPath, repair); // FIXME: combine with hashPath()
 
     if (localSettings.fsyncStorePaths) {
@@ -1256,7 +1289,7 @@ void LocalStore::addToStore(const ValidPathInfo & info, Source & source, RepairF
                from a build hook (whose parent process already acquired a
                lock on this path). */
             if (!locksHeld.count(printStorePath(info.path)))
-                outputLock.lockPaths({realPath});
+                outputLock.lockPaths({realPath}, fmt("waiting for lock on '%s'", Magenta(printStorePath(info.path))));
 
             /* The path may have been created by another process in the meantime, so check again. */
             if (repair || !isValidPathUncached(info.path)) {
@@ -1689,7 +1722,7 @@ bool LocalStore::verifyStore(bool checkContents, RepairFlag repair)
     /* Acquire the global GC lock to get a consistent snapshot of
        existing and valid paths. */
     auto fdGCLock = openGCLock();
-    FdLock gcLock(fdGCLock.get(), ltRead, true, "waiting for the big garbage collector lock...");
+    FdLock gcLock(fdGCLock.get(), ltRead, true, "waiting for the big garbage collector lock");
 
     auto [errors, validPaths] = verifyAllValidPaths(repair);
 

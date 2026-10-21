@@ -1,3 +1,4 @@
+#include "nix/util/finally.hh"
 #include "nix/util/archive.hh"
 #include "nix/store/derivations.hh"
 #include "nix/store/derivation/aterm.hh"
@@ -1233,6 +1234,12 @@ static int main_nix_store(int argc, char ** argv)
             showManPage("nix-store" + opName);
         if (!op)
             throw UsageError("no operation specified");
+
+        /* Release the store before returning, rather than leaving it
+           to the static destructors (which don't run on exit), so
+           that e.g. the SQLite database is closed cleanly and the
+           temporary GC roots are removed. */
+        Finally releaseStore([]() { store = nullptr; });
 
         if (op != opDump && op != opRestore && op != opVersion) /* !!! hack */
             store = openStore();

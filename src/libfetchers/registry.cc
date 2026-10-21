@@ -39,11 +39,8 @@ Registry::read(const Settings & settings, std::string_view whence, std::string_v
             for (auto & i : json["flakes"]) {
                 auto toAttrs = jsonToAttrs(i["to"]);
                 Attrs extraAttrs;
-                auto j = toAttrs.find("dir");
-                if (j != toAttrs.end()) {
-                    extraAttrs.insert(*j);
-                    toAttrs.erase(j);
-                }
+                if (auto nh = toAttrs.extract("dir"))
+                    extraAttrs.insert(std::move(nh));
                 auto exact = i.find("exact");
                 registry->entries.push_back(
                     Entry{

@@ -23,20 +23,31 @@ static ActiveBuildInfo::ProcessInfo getProcessInfo(pid_t pid)
 {
     ActiveBuildInfo::ProcessInfo info;
     info.pid = pid;
-    info.argv =
-        tokenizeString<std::vector<std::string>>(readFile(fmt("/proc/%d/cmdline", pid)), std::string("\000", 1));
 
-    auto statPath = fmt("/proc/%d/stat", pid);
+    auto procPath = fmt("/proc/%d", pid);
 
-    AutoCloseFD statFd = open(statPath.c_str(), O_RDONLY | O_CLOEXEC);
-    if (!statFd)
-        throw SysError("opening '%s'", statPath);
+    AutoCloseFD procFd = open(procPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (!procFd)
+        throw SysError("opening '%s'", procPath);
 
-    // Get the UID from the ownership of the stat file.
+    {
+        AutoCloseFD cmdlineFd = openat(procFd.get(), "cmdline", O_RDONLY | O_CLOEXEC);
+        if (!cmdlineFd)
+            throw SysError("opening '%s/cmdline'", procPath);
+        info.argv = tokenizeString<std::vector<std::string>>(readFile(cmdlineFd.get()), std::string("\000", 1));
+    }
+
+    // Get the UID from the ownership of the /proc/[pid] directory. Note that we can't use the files in that directory
+    // (like /proc/[pid]/stat) because the kernel makes those owned by root if the process is a zombie or not
+    // dumpable.
     struct stat st;
-    if (fstat(statFd.get(), &st) == -1)
-        throw SysError("getting ownership of '%s'", statPath);
+    if (fstat(procFd.get(), &st) == -1)
+        throw SysError("getting ownership of '%s'", procPath);
     info.user = UserInfo::fromUid(st.st_uid);
+
+    AutoCloseFD statFd = openat(procFd.get(), "stat", O_RDONLY | O_CLOEXEC);
+    if (!statFd)
+        throw SysError("opening '%s/stat'", procPath);
 
     // Read /proc/[pid]/stat for parent PID and CPU times.
     // Format: pid (comm) state ppid ...
@@ -84,7 +95,7 @@ static std::set<pid_t> getDescendantPids(pid_t pid)
                     self(*childPid);
         } catch (...) {
             // Process may have exited.
-            ignoreExceptionExceptInterrupt();
+            ignoreExceptionExceptInterrupt(lvlDebug);
         }
     }(pid);
 
@@ -218,10 +229,10 @@ std::vector<ActiveBuildInfo> LocalStore::queryActiveBuilds()
 #if defined(__linux__) || defined(__APPLE__)
             /* Read process information. */
             try {
+                std::set<pid_t> pids;
 #  ifdef __linux__
                 if (info.cgroup) {
-                    for (auto pid : linux::getPidsInCgroup(*info.cgroup))
-                        info.processes.push_back(getProcessInfo(pid));
+                    pids = linux::getPidsInCgroup(*info.cgroup);
 
                     /* Read CPU statistics from the cgroup. */
                     auto stats = linux::getCgroupStats(*info.cgroup);
@@ -229,9 +240,15 @@ std::vector<ActiveBuildInfo> LocalStore::queryActiveBuilds()
                     info.stime = stats.cpuSystem;
                 } else
 #  endif
-                {
-                    for (auto pid : getDescendantPids(info.mainPid))
+                    pids = getDescendantPids(info.mainPid);
+
+                for (auto pid : pids) {
+                    try {
                         info.processes.push_back(getProcessInfo(pid));
+                    } catch (...) {
+                        // Process may have exited.
+                        ignoreExceptionExceptInterrupt(lvlDebug);
+                    }
                 }
             } catch (...) {
                 ignoreExceptionExceptInterrupt();

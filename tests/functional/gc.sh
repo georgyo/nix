@@ -42,7 +42,20 @@ for i in "$NIX_STORE_DIR"/*; do
     touch "$i.chroot"
 done
 
+# Create a stale temporary roots file. Only the garbage collector
+# should delete it.
+staleTempRoots="$NIX_STATE_DIR/temproots/123456789"
+mkdir -p "$(dirname "$staleTempRoots")"
+printf '%s\0' "$outPath" > "$staleTempRoots"
+nix-store --gc --print-roots
+if isDaemonNewer "2.35.4"; then
+    test -e "$staleTempRoots"
+fi
+
 nix-collect-garbage
+
+# Check that the stale temporary roots file has been deleted.
+if test -e "$staleTempRoots"; then false; fi
 
 # Check that the root and its dependencies haven't been deleted.
 cat "$outPath/foobar"

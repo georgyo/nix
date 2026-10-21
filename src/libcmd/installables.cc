@@ -607,7 +607,18 @@ std::vector<InstallableWithBuildResult> Installable::build2(
             resultsByPath.emplace(buildResult.path, &buildResult);
 
         for (auto & req : requests) {
-            auto & buildResult = *resultsByPath.at(req.path);
+            auto i = resultsByPath.find(req.path);
+            if (i == resultsByPath.end()) {
+                /* Daemons running upstream Nix >= 2.34 omit the results
+                   of goals that were cancelled or never started (which
+                   happens when another goal fails), so treat a missing
+                   result as a cancellation. */
+                res.push_back(
+                    {.installable = req.installable,
+                     .result = BuildResult{BuildError(BuildResult::Failure::Cancelled, "")}});
+                continue;
+            }
+            auto & buildResult = *i->second;
             if (buildResult.tryGetFailure()) {
                 res.push_back({.installable = req.installable, .result = buildResult});
                 continue;

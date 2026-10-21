@@ -98,7 +98,17 @@ SSHMaster::SSHMaster(
     , useMaster(useMaster && !fakeSSH)
     , compress(compress)
     , logFD(logFD)
-    , tmpDir(make_ref<AutoDelete>(createTempDir("", "nix", 0700)))
+    , tmpDir(
+          this->useMaster || !this->sshPublicHostKey.empty()
+              ? std::make_shared<AutoDelete>(createTempDir("", "nix", 0700))
+              : nullptr)
+    , knownHostsFile([&]() -> std::optional<std::filesystem::path> {
+        if (this->sshPublicHostKey.empty())
+            return std::nullopt;
+        auto fileName = tmpDir->path() / "host-key";
+        writeFile(fileName, this->authority.host + " " + this->sshPublicHostKey + "\n");
+        return fileName;
+    }())
 {
     checkValidAuthority(authority);
 }
@@ -110,11 +120,8 @@ void SSHMaster::addCommonSSHOpts(OsStrings & args, std::optional<std::filesystem
 
     if (keyFile)
         args.insert(args.end(), {OS_STR("-i"), keyFile->native()});
-    if (!sshPublicHostKey.empty()) {
-        std::filesystem::path fileName = tmpDir->path() / "host-key";
-        writeFile(fileName, authority.host + " " + sshPublicHostKey + "\n");
-        args.insert(args.end(), {OS_STR("-oUserKnownHostsFile=") + fileName.native()});
-    }
+    if (knownHostsFile)
+        args.insert(args.end(), {OS_STR("-oUserKnownHostsFile=") + knownHostsFile->native()});
     if (compress)
         args.push_back(OS_STR("-C"));
 
@@ -274,6 +281,7 @@ std::optional<std::filesystem::path> SSHMaster::startMaster()
 #endif
         return state->socketPath;
 
+    assert(tmpDir);
     state->socketPath = tmpDir->path() / "ssh.sock";
 
     Pipe out;

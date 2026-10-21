@@ -77,6 +77,7 @@ sources = files(
   'terminal.cc',
   'topo-sort.cc',
   'url.cc',
+  'users.cc',
   'util.cc',
   'xml-writer.cc',
 )

@@ -34,7 +34,17 @@ private:
     const bool compress;
     const Descriptor logFD;
 
-    const ref<const AutoDelete> tmpDir;
+    /**
+     * Temporary directory for the SSH master's control socket and the
+     * known hosts file. Only created if needed, i.e. if we use an SSH
+     * master or have a public host key.
+     */
+    const std::shared_ptr<const AutoDelete> tmpDir;
+
+    /**
+     * Known hosts file containing `sshPublicHostKey`, if set.
+     */
+    const std::optional<std::filesystem::path> knownHostsFile;
 
     struct State
     {

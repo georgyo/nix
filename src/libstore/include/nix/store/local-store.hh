@@ -249,7 +249,6 @@ public:
     const std::filesystem::path reservedPath;
     const std::filesystem::path schemaPath;
     const std::filesystem::path tempRootsDir;
-    const std::filesystem::path fnTempRoots;
 
 private:
 
@@ -358,10 +357,21 @@ private:
 
     void createTempRootsFile();
 
+    struct TempRootsFile
+    {
+        /**
+         * The path of the file, i.e. `<tempRootsDir>/<n>` (see
+         * createTempRootsFile()).
+         */
+        std::filesystem::path path;
+
+        AutoCloseFD fd;
+    };
+
     /**
      * The file to which we write our temporary roots.
      */
-    Sync<AutoCloseFD> _fdTempRoots;
+    Sync<TempRootsFile> _tempRootsFile;
 
     /**
      * The global GC lock.
@@ -385,7 +395,16 @@ public:
 
 private:
 
-    void findTempRoots(Roots & roots, bool censor);
+    /**
+     * Read the temporary roots files of all processes.
+     *
+     * @param deleteStale Whether to delete the temporary roots files
+     * of processes that have exited. This must only be done while
+     * holding the global GC lock, since otherwise concurrent
+     * deleters could race with each other and with
+     * createTempRootsFile().
+     */
+    void findTempRoots(Roots & roots, bool censor, bool deleteStale = false);
 
     AutoCloseFD openGCLock();
 

@@ -123,6 +123,7 @@
     - [Store Path](protocols/json/store-path.md)
     - [Signature](protocols/json/signature.md)
     - [Store Object Info](protocols/json/store-object-info.md)
+    - [Provenance](protocols/json/provenance.md)
     - [Derivation](protocols/json/derivation/index.md)
       - [Resolved Derivation](protocols/json/derivation/resolved.md)
       - [Derivation Options](protocols/json/derivation/options.md)
@@ -156,6 +157,8 @@
   - [Contributing](development/contributing.md)
 - [Determinate Nix Release Notes](release-notes-determinate/index.md)
   - [Changes between Nix and Determinate Nix](release-notes-determinate/changes.md)<!-- next -->
+  - [Release 3.23.3 (2026-10-16)](release-notes-determinate/v3.23.3.md)
+  - [Release 3.23.2 (2026-10-13)](release-notes-determinate/v3.23.2.md)
   - [Release 3.23.1 (2026-10-05)](release-notes-determinate/v3.23.1.md)
   - [Release 3.23.0 (2026-10-01)](release-notes-determinate/v3.23.0.md)
   - [Release 3.22.5 (2026-09-17)](release-notes-determinate/v3.22.5.md)

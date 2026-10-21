@@ -52,3 +52,20 @@ sid=$(head -n1 < "$TEST_ROOT/log.json" | jq -r '.sid')
 nix store info --json-log-path "$TEST_ROOT/log2.json" --session-id "foo"
 (( $(jq -s 'length' < "$TEST_ROOT/log2.json") > 0 ))
 (( $(jq -s --arg sid foo '[.[] | select(.sid != $sid)] | length' < "$TEST_ROOT/log2.json") == 0 ))
+
+# Test that string-named activities (including those forwarded by the
+# daemon) appear in the JSON log with their name and metadata.
+if isDaemonNewer "2.36pre"; then
+    clearStore
+    clearBinaryCache
+    path=$(nix-build dependencies.nix --no-out-link)
+    nix key generate-secret --key-name test-1 > "$TEST_ROOT/sk"
+    nix copy --to "file://$cacheDir?secret-key=$TEST_ROOT/sk" "$path"
+    clearStore
+    clearCacheCache
+    # Use the daemon so that we test forwarding of string-named activities.
+    startDaemon
+    nix build --no-link --substitute --substituters "file://$cacheDir" --trusted-public-keys "$(nix key convert-secret-to-public < "$TEST_ROOT/sk")" \
+        --json-log-path "$TEST_ROOT/log3.json" "$path"
+    (( $(jq -s --arg path "$path" '[.[] | select(.action == "start" and .type == 10113 and .name == "SubstitutionGoal" and .payload."nix.store.path" == $path)] | length' < "$TEST_ROOT/log3.json") == 1 ))
+fi

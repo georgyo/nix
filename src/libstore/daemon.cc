@@ -37,22 +37,26 @@
 
 namespace nix::daemon {
 
+static void writeField(Sink & sink, const Logger::Field & field)
+{
+    std::visit(
+        overloaded{
+            [&sink](uint64_t i) {
+                sink << 0;
+                sink << i;
+            },
+            [&sink](const std::string & s) {
+                sink << 1;
+                sink << s;
+            }},
+        field);
+}
+
 Sink & operator<<(Sink & sink, std::span<const Logger::Field> fields)
 {
     sink << fields.size();
-    for (auto & f : fields) {
-        std::visit(
-            overloaded{
-                [&sink](uint64_t i) {
-                    sink << 0;
-                    sink << i;
-                },
-                [&sink](const std::string & s) {
-                    sink << 1;
-                    sink << s;
-                }},
-            f);
-    }
+    for (auto & f : fields)
+        writeField(sink, f);
     return sink;
 }
 
@@ -176,6 +180,28 @@ struct TunnelLogger : public Logger
 
         StringSink buf;
         buf << STDERR_START_ACTIVITY << act << std::to_underlying(lvl) << type << s << fields << parent;
+        enqueueMsg(buf.s);
+    }
+
+    void startActivity(
+        ActivityId act,
+        Verbosity lvl,
+        std::string_view name,
+        ActivityMetadata metadata,
+        std::string_view s,
+        ActivityId parent) noexcept override
+    {
+        if (clientVersion.number < WorkerProto::Version::Number{1, 20}
+            || !clientVersion.features.contains(WorkerProto::featureNamedActivities))
+            return Logger::startActivity(act, lvl, name, metadata, s, parent);
+
+        StringSink buf;
+        buf << STDERR_START_ACTIVITY_STRINGLY << act << std::to_underlying(lvl) << name << s << metadata.size();
+        for (auto & [key, value] : metadata) {
+            buf << key;
+            writeField(buf, value);
+        }
+        buf << parent;
         enqueueMsg(buf.s);
     }
 
@@ -458,6 +484,11 @@ static void performOp(
             bool repairBool;
             conn.from >> repairBool;
             auto repair = RepairFlag{repairBool};
+            /* Repairing is not atomic, so disallowed for "untrusted"
+               clients. */
+            if (repair && !trusted)
+                throw Error("you are not privileged to repair paths");
+
             auto provenance = conn.protoVersion.features.contains(WorkerProto::featureProvenance)
                                   ? Provenance::from_json_str_optional(readString(conn.from))
                                   : nullptr;
@@ -542,6 +573,10 @@ static void performOp(
     case WorkerProto::Op::AddMultipleToStore: {
         bool repair, dontCheckSigs;
         conn.from >> repair >> dontCheckSigs;
+        /* Repairing is not atomic, so disallowed for "untrusted"
+           clients. */
+        if (repair && !trusted)
+            throw Error("you are not privileged to repair store paths");
         if (!trusted && dontCheckSigs)
             dontCheckSigs = false;
 
@@ -1018,6 +1053,10 @@ static void performOp(
                               ? Provenance::from_json_str_optional(readString(conn.from))
                               : nullptr;
         conn.from >> repair >> dontCheckSigs;
+        /* Repairing is not atomic, so disallowed for "untrusted"
+           clients. */
+        if (repair && !trusted)
+            throw Error("you are not privileged to repair store paths");
         if (!trusted && dontCheckSigs)
             dontCheckSigs = false;
         if (!trusted)
