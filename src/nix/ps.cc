@@ -51,10 +51,19 @@ struct CmdPs : MixJSON, StoreCommand
             return user.name ? *user.name : std::to_string(user.uid);
         };
 
+        auto formatRss = [](std::optional<uint64_t> rss) -> TableCell {
+            return {rss ? renderSize(*rss) : "", TableCell::Alignment::Right};
+        };
+
         Table table;
 
         /* Add column headers. */
-        table.push_back({{"USER"}, {"PID"}, {"CPU", TableCell::Alignment::Right}, {"DERIVATION/COMMAND"}});
+        table.push_back(
+            {{"USER"},
+             {"PID"},
+             {"CPU", TableCell::Alignment::Right},
+             {"RSS", TableCell::Alignment::Right},
+             {"DERIVATION/COMMAND"}});
 
         for (const auto & build : builds) {
             /* Calculate CPU time - use cgroup stats if available, otherwise sum process times. */
@@ -68,6 +77,16 @@ struct CmdPs : MixJSON, StoreCommand
                 return total;
             }();
 
+            /* Get memory usage - use cgroup stats if available, otherwise sum process RSS. Note that the latter
+               double-counts shared pages. */
+            auto rss = build.rss ? build.rss : [&]() {
+                std::optional<uint64_t> total;
+                for (const auto & process : build.processes)
+                    if (process.rss)
+                        total = total.value_or(0) + *process.rss;
+                return total;
+            }();
+
             /* Add build summary row. */
             table.push_back(
                 {formatUser(build.mainUser),
@@ -76,6 +95,7 @@ struct CmdPs : MixJSON, StoreCommand
                       std::chrono::duration_cast<std::chrono::duration<float, std::chrono::seconds::period>>(cpuTime)
                           .count()),
                   TableCell::Alignment::Right},
+                 formatRss(rss),
                  fmt(ANSI_BOLD "%s" ANSI_NORMAL " (wall=%ds)",
                      store->printStorePath(build.derivation),
                      time(nullptr) - build.startTime)});
@@ -84,6 +104,7 @@ struct CmdPs : MixJSON, StoreCommand
                 table.push_back(
                     {formatUser(build.mainUser),
                      std::to_string(build.mainPid),
+                     {"", TableCell::Alignment::Right},
                      {"", TableCell::Alignment::Right},
                      fmt("%s" ANSI_ITALIC "(no process info)" ANSI_NORMAL, treeLast)});
             } else {
@@ -129,6 +150,7 @@ struct CmdPs : MixJSON, StoreCommand
                             {formatUser(process->user),
                              std::to_string(process->pid),
                              {cpuInfo, TableCell::Alignment::Right},
+                             formatRss(process->rss),
                              fmt("%s%s%s", prefix, last ? treeLast : treeConn, argv)});
 
                         visit(children[process->pid], last ? prefix + treeNull : prefix + treeLine);

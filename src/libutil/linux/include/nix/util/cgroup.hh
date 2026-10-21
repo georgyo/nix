@@ -17,6 +17,11 @@ StringMap getCgroups(const std::filesystem::path & cgroupFile);
 struct CgroupStats
 {
     std::optional<std::chrono::microseconds> cpuUser, cpuSystem;
+
+    /**
+     * Resident memory (anonymous + mapped file pages) in bytes.
+     */
+    std::optional<uint64_t> memory;
 };
 
 /**
