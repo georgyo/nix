@@ -93,7 +93,7 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 
 <!-- Determinate Nix version 3.11.0 -->
 
-* Multithreaded evaluation support. [DeterminateSystems/nix-src#125](https://github.com/DeterminateSystems/nix-src/pull/125)
+* Determinate Nix can evaluate Nix expressions in parallel using multiple threads. This benefits commands like `nix flake show`, `nix flake check`, `nix search`, and `nix eval --json`. It also evaluates the dependencies of derivations in parallel. [DeterminateSystems/nix-src#125](https://github.com/DeterminateSystems/nix-src/pull/125), [DeterminateSystems/nix-src#572](https://github.com/DeterminateSystems/nix-src/pull/572)
 
 <!-- Determinate Nix version 3.11.1 -->
 
@@ -139,7 +139,7 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 
 * `nix flake check` shows which outputs failed or succeeded. [DeterminateSystems/nix-src#285](https://github.com/DeterminateSystems/nix-src/pull/285)
 
-* Determinate Nix has a `nix ps` command to show active builds. [DeterminateSystems/nix-src#282](https://github.com/DeterminateSystems/nix-src/pull/282)
+* Determinate Nix has a `nix ps` command to show active builds, including their CPU time and memory usage. [DeterminateSystems/nix-src#282](https://github.com/DeterminateSystems/nix-src/pull/282), [DeterminateSystems/nix-src#715](https://github.com/DeterminateSystems/nix-src/pull/715)
 
 * Determinate Nix has improved backward compatibility with lock files created by Nix < 2.20. [DeterminateSystems/nix-src#278](https://github.com/DeterminateSystems/nix-src/pull/278)
 
@@ -257,45 +257,4 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 
 <!-- Determinate Nix version 3.24.0 -->
 
-* Don't abort on missing build results from upstream daemons by @edolstra in [DeterminateSystems/nix-src#704](https://github.com/DeterminateSystems/nix-src/pull/704)
-
-* sentry-native: 0.13.5 -> 0.17.4 by @edolstra in [DeterminateSystems/nix-src#705](https://github.com/DeterminateSystems/nix-src/pull/705)
-
-* Send non-JSON output from the build hook through the logger by @edolstra in [DeterminateSystems/nix-src#697](https://github.com/DeterminateSystems/nix-src/pull/697)
-
-* Don't abort on non-monotonic generation timestamps in --delete-older-than by @edolstra in [DeterminateSystems/nix-src#700](https://github.com/DeterminateSystems/nix-src/pull/700)
-
-* Implement auto-parallelization for derivationStrict by @edolstra in [DeterminateSystems/nix-src#572](https://github.com/DeterminateSystems/nix-src/pull/572)
-
-* BinaryCacheStore::addMultipleToStore(): Don't call isValidPath() twice by @edolstra in [DeterminateSystems/nix-src#708](https://github.com/DeterminateSystems/nix-src/pull/708)
-
-* nix ps: Fix processes showing up as owned by root by @edolstra in [DeterminateSystems/nix-src#709](https://github.com/DeterminateSystems/nix-src/pull/709)
-
-* Document the provenance JSON format by @edolstra in [DeterminateSystems/nix-src#712](https://github.com/DeterminateSystems/nix-src/pull/712)
-
-* Use std::map's extract method by @edolstra in [DeterminateSystems/nix-src#711](https://github.com/DeterminateSystems/nix-src/pull/711)
-
-* nix ps: Don't drop processes when one exits mid-query by @edolstra in [DeterminateSystems/nix-src#713](https://github.com/DeterminateSystems/nix-src/pull/713)
-
-* Disable tests for wasmtime by @n0099 in [DeterminateSystems/nix-src#703](https://github.com/DeterminateSystems/nix-src/pull/703)
-
-* nix ps: Show memory usage by @edolstra in [DeterminateSystems/nix-src#715](https://github.com/DeterminateSystems/nix-src/pull/715)
-
-* libstore: keep SQLite temp storage in memory by @czawistowski-nvidia in [DeterminateSystems/nix-src#717](https://github.com/DeterminateSystems/nix-src/pull/717)
-
-* libstore: register a temporary root in ensurePath() for valid paths by @czawistowski-nvidia in [DeterminateSystems/nix-src#714](https://github.com/DeterminateSystems/nix-src/pull/714)
-
-* Remove leftover categories from nested subcommands by @edolstra in [DeterminateSystems/nix-src#719](https://github.com/DeterminateSystems/nix-src/pull/719)
-
-* Add `nix top` by @edolstra in [DeterminateSystems/nix-src#710](https://github.com/DeterminateSystems/nix-src/pull/710)
-
-* AsyncPathWriter: Make waitForAllPaths() independent of the number of paths written by @edolstra in [DeterminateSystems/nix-src#716](https://github.com/DeterminateSystems/nix-src/pull/716)
-
-* ArchiveCompressionSink: Don't let exceptions escape from callback_write by @edolstra in [DeterminateSystems/nix-src#720](https://github.com/DeterminateSystems/nix-src/pull/720)
-
-* exact-rev-fetch-bucketed-refs: Fix race in parsing "Total" by @edolstra in [DeterminateSystems/nix-src#722](https://github.com/DeterminateSystems/nix-src/pull/722)
-
-
-* @n0099 made their first contribution in [DeterminateSystems/nix-src#703](https://github.com/DeterminateSystems/nix-src/pull/703)
-
-* @czawistowski-nvidia made their first contribution in [DeterminateSystems/nix-src#717](https://github.com/DeterminateSystems/nix-src/pull/717)
+* Determinate Nix has a `nix top` command that shows a continuously updating view of the active builds and their CPU and memory usage. [DeterminateSystems/nix-src#710](https://github.com/DeterminateSystems/nix-src/pull/710)
