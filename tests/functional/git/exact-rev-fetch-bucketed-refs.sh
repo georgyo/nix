@@ -53,7 +53,10 @@ if ! grep -q "fetch> have $rev1" "$trace"; then
     exit 1
 fi
 
-totals=$(grep -oE 'sideband< .*Total [0-9]+' "$trace" | sed -E 's/.*Total ([0-9]+)/\1/')
+# The server's progress messages (sideband channel 2) can be split
+# across packets at arbitrary points, so join them before looking for
+# the "Total" message.
+totals=$(grep 'sideband< \\2' "$trace" | sed 's/.*sideband< \\2//' | tr -d '\n' | grep -oE 'Total [0-9]+' | sed 's/Total //')
 if [[ $totals -ge 6 ]]; then
     echo "Expected the second fetch to receive only new objects (got Total $totals, same as a full re-fetch would)." >&2
     exit 1
