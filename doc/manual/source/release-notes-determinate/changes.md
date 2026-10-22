@@ -1,6 +1,6 @@
 # Changes between Nix and Determinate Nix
 
-This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.3.<!-- differences -->
+This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.24.0.<!-- differences -->
 
 * In Determinate Nix, flakes are stable. You no longer need to enable the `flakes` experimental feature.
 
@@ -254,3 +254,48 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 <!-- Determinate Nix version 3.23.2 -->
 
 <!-- Determinate Nix version 3.23.3 -->
+
+<!-- Determinate Nix version 3.24.0 -->
+
+* Don't abort on missing build results from upstream daemons by @edolstra in [DeterminateSystems/nix-src#704](https://github.com/DeterminateSystems/nix-src/pull/704)
+
+* sentry-native: 0.13.5 -> 0.17.4 by @edolstra in [DeterminateSystems/nix-src#705](https://github.com/DeterminateSystems/nix-src/pull/705)
+
+* Send non-JSON output from the build hook through the logger by @edolstra in [DeterminateSystems/nix-src#697](https://github.com/DeterminateSystems/nix-src/pull/697)
+
+* Don't abort on non-monotonic generation timestamps in --delete-older-than by @edolstra in [DeterminateSystems/nix-src#700](https://github.com/DeterminateSystems/nix-src/pull/700)
+
+* Implement auto-parallelization for derivationStrict by @edolstra in [DeterminateSystems/nix-src#572](https://github.com/DeterminateSystems/nix-src/pull/572)
+
+* BinaryCacheStore::addMultipleToStore(): Don't call isValidPath() twice by @edolstra in [DeterminateSystems/nix-src#708](https://github.com/DeterminateSystems/nix-src/pull/708)
+
+* nix ps: Fix processes showing up as owned by root by @edolstra in [DeterminateSystems/nix-src#709](https://github.com/DeterminateSystems/nix-src/pull/709)
+
+* Document the provenance JSON format by @edolstra in [DeterminateSystems/nix-src#712](https://github.com/DeterminateSystems/nix-src/pull/712)
+
+* Use std::map's extract method by @edolstra in [DeterminateSystems/nix-src#711](https://github.com/DeterminateSystems/nix-src/pull/711)
+
+* nix ps: Don't drop processes when one exits mid-query by @edolstra in [DeterminateSystems/nix-src#713](https://github.com/DeterminateSystems/nix-src/pull/713)
+
+* Disable tests for wasmtime by @n0099 in [DeterminateSystems/nix-src#703](https://github.com/DeterminateSystems/nix-src/pull/703)
+
+* nix ps: Show memory usage by @edolstra in [DeterminateSystems/nix-src#715](https://github.com/DeterminateSystems/nix-src/pull/715)
+
+* libstore: keep SQLite temp storage in memory by @czawistowski-nvidia in [DeterminateSystems/nix-src#717](https://github.com/DeterminateSystems/nix-src/pull/717)
+
+* libstore: register a temporary root in ensurePath() for valid paths by @czawistowski-nvidia in [DeterminateSystems/nix-src#714](https://github.com/DeterminateSystems/nix-src/pull/714)
+
+* Remove leftover categories from nested subcommands by @edolstra in [DeterminateSystems/nix-src#719](https://github.com/DeterminateSystems/nix-src/pull/719)
+
+* Add `nix top` by @edolstra in [DeterminateSystems/nix-src#710](https://github.com/DeterminateSystems/nix-src/pull/710)
+
+* AsyncPathWriter: Make waitForAllPaths() independent of the number of paths written by @edolstra in [DeterminateSystems/nix-src#716](https://github.com/DeterminateSystems/nix-src/pull/716)
+
+* ArchiveCompressionSink: Don't let exceptions escape from callback_write by @edolstra in [DeterminateSystems/nix-src#720](https://github.com/DeterminateSystems/nix-src/pull/720)
+
+* exact-rev-fetch-bucketed-refs: Fix race in parsing "Total" by @edolstra in [DeterminateSystems/nix-src#722](https://github.com/DeterminateSystems/nix-src/pull/722)
+
+
+* @n0099 made their first contribution in [DeterminateSystems/nix-src#703](https://github.com/DeterminateSystems/nix-src/pull/703)
+
+* @czawistowski-nvidia made their first contribution in [DeterminateSystems/nix-src#717](https://github.com/DeterminateSystems/nix-src/pull/717)
