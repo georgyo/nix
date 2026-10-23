@@ -1,6 +1,6 @@
 # Changes between Nix and Determinate Nix
 
-This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.23.3.<!-- differences -->
+This section lists the differences between upstream Nix 2.35 and Determinate Nix 3.24.0.<!-- differences -->
 
 * In Determinate Nix, flakes are stable. You no longer need to enable the `flakes` experimental feature.
 
@@ -93,7 +93,7 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 
 <!-- Determinate Nix version 3.11.0 -->
 
-* Multithreaded evaluation support. [DeterminateSystems/nix-src#125](https://github.com/DeterminateSystems/nix-src/pull/125)
+* Determinate Nix can evaluate Nix expressions in parallel using multiple threads. This benefits commands like `nix flake show`, `nix flake check`, `nix search`, and `nix eval --json`. It also evaluates the dependencies of derivations in parallel. [DeterminateSystems/nix-src#125](https://github.com/DeterminateSystems/nix-src/pull/125), [DeterminateSystems/nix-src#572](https://github.com/DeterminateSystems/nix-src/pull/572)
 
 <!-- Determinate Nix version 3.11.1 -->
 
@@ -139,7 +139,7 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 
 * `nix flake check` shows which outputs failed or succeeded. [DeterminateSystems/nix-src#285](https://github.com/DeterminateSystems/nix-src/pull/285)
 
-* Determinate Nix has a `nix ps` command to show active builds. [DeterminateSystems/nix-src#282](https://github.com/DeterminateSystems/nix-src/pull/282)
+* Determinate Nix has a `nix ps` command to show active builds, including their CPU time and memory usage. [DeterminateSystems/nix-src#282](https://github.com/DeterminateSystems/nix-src/pull/282), [DeterminateSystems/nix-src#715](https://github.com/DeterminateSystems/nix-src/pull/715)
 
 * Determinate Nix has improved backward compatibility with lock files created by Nix < 2.20. [DeterminateSystems/nix-src#278](https://github.com/DeterminateSystems/nix-src/pull/278)
 
@@ -254,3 +254,7 @@ This section lists the differences between upstream Nix 2.35 and Determinate Nix
 <!-- Determinate Nix version 3.23.2 -->
 
 <!-- Determinate Nix version 3.23.3 -->
+
+<!-- Determinate Nix version 3.24.0 -->
+
+* Determinate Nix has a `nix top` command that shows a continuously updating view of the active builds and their CPU and memory usage. [DeterminateSystems/nix-src#710](https://github.com/DeterminateSystems/nix-src/pull/710)

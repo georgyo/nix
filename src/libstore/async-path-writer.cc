@@ -28,6 +28,12 @@ struct AsyncPathWriterImpl : AsyncPathWriter
     {
         std::vector<Item> items;
         std::unordered_map<StorePath, std::shared_future<void>> futures;
+        /* The number of items queued so far, and the number of those
+           that have been written (or have failed). Items are written
+           in the order they were queued. */
+        uint64_t queued = 0, written = 0;
+        /* The first error since the last `waitForAllPaths()`. */
+        std::exception_ptr error;
         bool quit = false;
     };
 
@@ -37,30 +43,45 @@ struct AsyncPathWriterImpl : AsyncPathWriter
 
     std::condition_variable wakeupCV;
 
+    /* Notified when the worker thread has written a batch of items. */
+    std::condition_variable writtenCV;
+
     AsyncPathWriterImpl(ref<Store> store)
         : store(store)
     {
         workerThread = std::thread([&]() {
             while (true) {
                 std::vector<Item> items;
+                uint64_t batchEnd;
 
                 {
                     auto state(state_.lock());
-                    while (!state->quit && state->items.empty())
-                        state.wait(wakeupCV);
-                    if (state->items.empty() && state->quit)
+                    state.wait(wakeupCV, [&] { return state->quit || !state->items.empty(); });
+                    if (state->items.empty())
                         return;
                     std::swap(items, state->items);
+                    batchEnd = state->queued;
                 }
+
+                std::exception_ptr error;
 
                 try {
                     writePaths(items);
                     for (auto & item : items)
                         item.promise.set_value();
                 } catch (...) {
+                    error = std::current_exception();
                     for (auto & item : items)
-                        item.promise.set_exception(std::current_exception());
+                        item.promise.set_exception(error);
                 }
+
+                {
+                    auto state(state_.lock());
+                    state->written = batchEnd;
+                    if (error && !state->error)
+                        state->error = error;
+                }
+                writtenCV.notify_all();
             }
         });
     }
@@ -114,6 +135,7 @@ struct AsyncPathWriterImpl : AsyncPathWriter
                 .provenance = provenance,
                 .promise = std::move(promise),
             });
+        state->queued++;
         wakeupCV.notify_all();
 
         return storePath;
@@ -133,15 +155,14 @@ struct AsyncPathWriterImpl : AsyncPathWriter
 
     void waitForAllPaths() override
     {
-        /* Copy rather than move the futures, since `futures` also
-           serves as the record of paths already written (see
-           `addPath()`). */
-        auto futures = ({
-            auto state(state_.lock());
-            state->futures;
-        });
-        for (auto & future : futures)
-            future.second.get();
+        /* Wait for the items queued before this call, but not for
+           items queued concurrently by other threads, so that we
+           can't be starved. */
+        auto state(state_.lock());
+        auto target = state->queued;
+        state.wait(writtenCV, [&] { return state->written >= target; });
+        if (auto error = std::exchange(state->error, nullptr))
+            std::rethrow_exception(error);
     }
 
     void writePaths(const std::vector<Item> & items)

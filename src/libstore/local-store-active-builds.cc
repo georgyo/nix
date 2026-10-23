@@ -76,6 +76,23 @@ static ActiveBuildInfo::ProcessInfo getProcessInfo(pid_t pid)
             info.cstime = std::chrono::microseconds((*cstime * 1'000'000) / clkTck);
     }
 
+    // Get the resident set size from /proc/[pid]/statm. Note that we don't use the proportional set size (PSS) from
+    // /proc/[pid]/smaps_rollup, even though it would avoid double-counting shared pages when summing over processes,
+    // because computing it requires the kernel to walk all page tables of the process while holding its mmap lock,
+    // which is expensive for large processes and stalls them. RSS on the other hand is a cheap counter read. For
+    // the build total, we use the cgroup's memory statistics if available, which don't double-count.
+    {
+        AutoCloseFD statmFd = openat(procFd.get(), "statm", O_RDONLY | O_CLOEXEC);
+        if (!statmFd)
+            throw SysError("opening '%s/statm'", procPath);
+        // Format: size resident shared text lib data dt (in pages).
+        auto statmFields = tokenizeString<std::vector<std::string>>(readFile(statmFd.get()));
+        static long pageSize = sysconf(_SC_PAGESIZE);
+        if (statmFields.size() > 1 && pageSize > 0)
+            if (auto resident = string2Int<uint64_t>(statmFields[1]))
+                info.rss = *resident * pageSize;
+    }
+
     return info;
 }
 
@@ -130,6 +147,8 @@ static ActiveBuildInfo::ProcessInfo getProcessInfo(pid_t pid)
             std::chrono::microseconds((uint64_t) ((double) taskInfo.pti_total_user * nanosecondsPerTick / 1000));
         info.stime =
             std::chrono::microseconds((uint64_t) ((double) taskInfo.pti_total_system * nanosecondsPerTick / 1000));
+
+        info.rss = taskInfo.pti_resident_size;
     }
 
     // Get argv using sysctl.
@@ -238,6 +257,7 @@ std::vector<ActiveBuildInfo> LocalStore::queryActiveBuilds()
                     auto stats = linux::getCgroupStats(*info.cgroup);
                     info.utime = stats.cpuUser;
                     info.stime = stats.cpuSystem;
+                    info.rss = stats.memory;
                 } else
 #  endif
                     pids = getDescendantPids(info.mainPid);

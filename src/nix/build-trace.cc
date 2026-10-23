@@ -20,11 +20,6 @@ struct CmdBuildTrace : NixMultiCommand
         return "manipulate a Nix build trace";
     }
 
-    Category category() override
-    {
-        return catUtility;
-    }
-
     std::optional<ExperimentalFeature> experimentalFeature() override
     {
         return Xp::CaDerivations;
@@ -45,11 +40,6 @@ struct CmdBuildTraceInfo : BuiltPathsCommand, MixJSON
         return
 #include "build-trace/info.md"
             ;
-    }
-
-    Category category() override
-    {
-        return catSecondary;
     }
 
     void run(ref<Store> store, BuiltPaths && paths, BuiltPaths && rootPaths) override
