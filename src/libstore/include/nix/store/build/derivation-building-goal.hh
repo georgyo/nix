@@ -95,7 +95,8 @@ private:
         const StorePathSet & inputPaths,
         std::map<std::string, InitialOutput> & initialOutputs,
         const DerivationOptions<StorePath> & drvOptions,
-        PathLocks outputLocks);
+        PathLocks outputLocks,
+        bool waitForSlot = true);
 
     /**
      * Is the build hook willing to perform the build?

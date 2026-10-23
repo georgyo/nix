@@ -576,7 +576,7 @@ Goal::Co<DerivationBuildingGoal::Result> DerivationBuildingGoal::tryToBuild()
         }
     };
 
-    auto tryBuildLocally = [&]() -> Goal::Co<std::optional<LocalBuildOutcome>> {
+    auto tryBuildLocally = [&](bool waitForSlot = true) -> Goal::Co<std::optional<LocalBuildOutcome>> {
         if (auto * cap = std::get_if<LocalBuildCapability>(&localBuildResult)) {
             PathLocks outputLocks;
             if (co_await acquireResources(outputLocks))
@@ -585,7 +585,8 @@ Goal::Co<DerivationBuildingGoal::Result> DerivationBuildingGoal::tryToBuild()
                     .builtOutputs = checkPathValidity(initialOutputs).second,
                 }};
 
-            co_return co_await buildLocally(*cap, inputPaths, initialOutputs, drvOptions, std::move(outputLocks));
+            co_return co_await buildLocally(
+                *cap, inputPaths, initialOutputs, drvOptions, std::move(outputLocks), waitForSlot);
         }
 
         co_return std::nullopt;
@@ -604,6 +605,12 @@ Goal::Co<DerivationBuildingGoal::Result> DerivationBuildingGoal::tryToBuild()
             if (!local)
                 if (auto result = co_await tryHookLoop())
                     co_return std::move(*result);
+        } else if (
+            worker.settings.preferLocalBuilds && std::holds_alternative<LocalBuildCapability>(localBuildResult)
+            && worker.getNrLocalBuilds() < worker.settings.maxBuildJobs) {
+            // A local slot is free, so use it. Don't wait if the slot gets taken in the meantime: in that case
+            // we go around the loop again and try the remote builders instead.
+            local = co_await tryBuildLocally(/*waitForSlot=*/false);
         } else {
             // Default preference is a remote build: they tend to be faster and preserve local
             // resources for other tasks. Fall back to local if no remote is available.
@@ -858,7 +865,8 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
     const StorePathSet & inputPaths,
     std::map<std::string, InitialOutput> & initialOutputs,
     const DerivationOptions<StorePath> & drvOptions,
-    PathLocks outputLocks)
+    PathLocks outputLocks,
+    bool waitForSlot)
 {
     co_await yield();
 
@@ -867,7 +875,8 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
        reported again when they actually start). */
     if (worker.getNrLocalBuilds() >= worker.settings.maxBuildJobs) {
         outputLocks.unlock();
-        co_await waitForBuildSlot();
+        if (waitForSlot)
+            co_await waitForBuildSlot();
         co_return NeedsSlot{};
     }
 
@@ -920,7 +929,8 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
         if (curBuilds >= worker.settings.maxBuildJobs) {
             outputLocks.unlock();
             buildAct.reset();
-            co_await waitForBuildSlot();
+            if (waitForSlot)
+                co_await waitForBuildSlot();
             co_return NeedsSlot{};
         }
 

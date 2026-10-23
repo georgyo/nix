@@ -268,6 +268,18 @@ public:
         {},
         false};
 
+    Setting<bool> preferLocalBuilds{
+        this,
+        false,
+        "prefer-local-builds",
+        R"(
+          If set to `true`, Nix builds derivations locally whenever a local build slot (see [`max-jobs`](#conf-max-jobs)) is free, and only uses the [remote build machines](#conf-builders) once all local slots are busy.
+
+          By default (`false`), Nix tries the remote build machines first and only builds locally if none of them can take the build.
+
+          Derivations that have [`preferLocalBuild = true`](@docroot@/language/advanced-attributes.md#adv-attr-preferLocalBuild) are always built locally regardless of this setting.
+        )"};
+
     Setting<bool> alwaysAllowSubstitutes{
         this,
         false,
