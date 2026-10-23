@@ -100,11 +100,6 @@ struct CmdBuildTraceDelete : virtual StoreCommand
             ;
     }
 
-    Category category() override
-    {
-        return catSecondary;
-    }
-
     void run(ref<Store> store) override
     {
         auto & gcStore = require<GcStore>(*store);
