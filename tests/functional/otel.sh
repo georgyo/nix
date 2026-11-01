@@ -145,6 +145,26 @@ done
 [[ $(span "daemon connection" .traceId) = $(span "nix store info" .traceId) ]]
 [[ $(span "daemon connection" .parentSpanId) = $(span "nix store info" .spanId) ]]
 
+# Likewise for a daemon reached via its socket, which handles each
+# connection in a worker process that it spawns. (Only if we start
+# that daemon ourselves, and it's the Nix under test.)
+if ! isTestOnNixOS && [[ -z ${_NIX_TEST_DAEMON_PID-} && -z ${NIX_DAEMON_PACKAGE-} ]]; then
+    startDaemon
+    trap 'killDaemon; kill "$sinkPid"' EXIT
+    clearUploads
+    nix store info > /dev/null
+    for ((i = 0; i < 100; i++)); do
+        [[ $(uploads) -ge 2 ]] && break
+        sleep 0.1
+    done
+    [[ $(services) = $'nix\nnix-daemon' ]]
+    [[ $(span "daemon connection" .kind) = 2 ]] # SERVER
+    [[ $(span "daemon connection" .traceId) = $(span "nix store info" .traceId) ]]
+    [[ $(span "daemon connection" .parentSpanId) = $(span "nix store info" .spanId) ]]
+    killDaemon
+    trap 'kill "$sinkPid"' EXIT
+fi
+
 # The root span is parented to the trace context in `TRACEPARENT`,
 # which is how remote builds via `build-remote` are linked to the
 # trace of the `nix` process that runs it.
