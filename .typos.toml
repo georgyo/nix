@@ -84,6 +84,10 @@ extend-identifiers = { baZ = "baZ" }
 extend-glob = ["create-darwin-volume.sh", "install-darwin-multi-user.sh"] # macOS Big Sur
 extend-words = { Sur = "Sur" }
 
+[type.allow-brocolli]
+extend-glob = ["flake.nix"] # the "brocolli2shell" vulnerability
+extend-words = { brocolli = "brocolli" }
+
 [type.allow-skool]
 extend-glob = ["nix-channel.cc"]
 extend-words = { skool = "skool" } # :)
