@@ -3,6 +3,7 @@
 #include "nix/util/util.hh"
 #include "nix/util/file-system.hh"
 #include "nix/util/finally.hh"
+#include "nix/util/sync.hh"
 
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <chrono>
@@ -190,10 +191,19 @@ CanonPath getCurrentCgroup()
     return CanonPath{ourCgroup};
 }
 
+static Sync<std::optional<CanonPath>> rootCgroup_;
+
 CanonPath getRootCgroup()
 {
-    static auto rootCgroup = getCurrentCgroup();
-    return rootCgroup;
+    auto rootCgroup(rootCgroup_.lock());
+    if (!*rootCgroup)
+        *rootCgroup = getCurrentCgroup();
+    return **rootCgroup;
+}
+
+void setRootCgroup(CanonPath cgroup)
+{
+    *rootCgroup_.lock() = std::move(cgroup);
 }
 
 std::set<pid_t> getPidsInCgroup(const std::filesystem::path & cgroup)

@@ -300,15 +300,17 @@ static void daemonLoop(
     setSigChldAction(true);
 
 #ifdef __linux__
+    std::optional<CanonPath> rootCgroup;
+
     if (settings.getLocalSettings().useCgroups) {
         experimentalFeatureSettings.require(Xp::Cgroups);
 
         //  This also sets the root cgroup to the current one.
-        auto rootCgroup = linux::getRootCgroup();
+        rootCgroup = linux::getRootCgroup();
         auto cgroupFS = linux::getCgroupFS();
         if (!cgroupFS)
             throw Error("cannot determine the cgroups file system");
-        auto rootCgroupPath = *cgroupFS / rootCgroup.rel();
+        auto rootCgroupPath = *cgroupFS / rootCgroup->rel();
         if (!pathExists(rootCgroupPath))
             throw Error("expected cgroup directory %s", PathFmt(rootCgroupPath));
         auto daemonCgroupPath = rootCgroupPath / "nix-daemon";
@@ -380,6 +382,17 @@ static void daemonLoop(
        It doesn't actually roundtrip. Note that a relative path shorthand will be resolved by StoreReference::parse
        called during option parsing (quite janky). */
     workerEnv[OS_STR("NIX_CONFIG")] = workerConfig;
+
+#ifdef __linux__
+    /* The workers start in our sub-cgroup, so tell them to create the
+       build cgroups next to it, in the root cgroup, where we enabled
+       the controllers. (They would otherwise use their own cgroup as
+       the root cgroup.) */
+    if (rootCgroup)
+        workerEnv[OS_STR("_NIX_DAEMON_ROOT_CGROUP")] = rootCgroup->abs();
+    else
+        workerEnv.erase(OS_STR("_NIX_DAEMON_ROOT_CGROUP"));
+#endif
 
     /* lvlInfo is the default used by nix-daemon (or anything using RegisterLegacyCommand for that matter). */
     std::vector<OsString> workerVerbosityFlags = [&]() -> std::vector<OsString> {
@@ -602,6 +615,13 @@ static void runDaemon(
     std::visit(
         overloaded{
             [&](StdIO) {
+#ifdef __linux__
+                /* If we're a worker started by daemonLoop(), use the
+                   daemon's root cgroup. */
+                if (auto rootCgroup = getEnv("_NIX_DAEMON_ROOT_CGROUP"))
+                    linux::setRootCgroup(CanonPath{*rootCgroup});
+#endif
+
                 auto store = storeConfig->openStore();
                 store->init();
 

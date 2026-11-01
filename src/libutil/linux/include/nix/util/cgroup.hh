@@ -42,9 +42,17 @@ CanonPath getCurrentCgroup();
 /**
  * Get the cgroup that should be used as the parent when creating new
  * sub-cgroups. The first time this is called, the current cgroup will be
- * returned, and then all subsequent calls will return the original cgroup.
+ * returned (unless it was set by `setRootCgroup()`), and then all
+ * subsequent calls will return the original cgroup.
  */
 CanonPath getRootCgroup();
+
+/**
+ * Set the cgroup returned by `getRootCgroup()`. This is used by a
+ * process that was started by the daemon, and that is therefore
+ * already in a sub-cgroup of the daemon's root cgroup.
+ */
+void setRootCgroup(CanonPath cgroup);
 
 /**
  * Get the PIDs of all processes in the given cgroup.
