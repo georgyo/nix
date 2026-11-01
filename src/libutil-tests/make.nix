@@ -27,13 +27,16 @@ let
     root = ./.;
 
     # The fuzz harnesses (Meson option `fuzzers`, off by default), and the
-    # Darwin-only tests elsewhere. libnixutil only interposes __cxa_throw on
-    # Linux (see src/libutil/make.nix).
+    # Darwin- and Linux-only tests elsewhere. libnixutil only interposes
+    # __cxa_throw on Linux (see src/libutil/make.nix).
     excludeSources = [
       "fuzz"
     ]
     ++ lib.optional (!isDarwin) "darwin"
-    ++ lib.optional (!isLinux) "cxa-throw.cc";
+    ++ lib.optionals (!isLinux) [
+      "linux"
+      "cxa-throw.cc"
+    ];
 
     includeDirs = [ "" ];
 

@@ -5,8 +5,12 @@ source common.sh
 case $system in
     *linux*)
         ;;
+    *darwin*)
+        # Older daemons lack libproc scanning, and tests disable their lsof fallback.
+        requireDaemonNewerThan "2.36pre"
+        ;;
     *)
-        skipTest "Not running Linux";
+        skipTest "Not running Linux or Darwin";
 esac
 
 TODO_NixOS
@@ -21,13 +25,17 @@ fifo="$TEST_ROOT/fifo"
 mkfifo "$fifo"
 
 echo "backgrounding program..."
-export environPath
-"$programPath"/program "$openPath"/open "$fifo" &
+env -i "environPath=$environPath" \
+    "$programPath"/program "$openPath"/open "$fifo" "" &
 child=$!
 echo PID=$child
 cat "$fifo"
 
-expectStderr 1 nix-store --delete "$openPath" | grepQuiet "Cannot delete path.*because it's referenced by the GC root '/proc/"
+case $system in
+    *linux*) rootPrefix=/proc/ ;;
+    *) rootPrefix='{libproc/' ;;
+esac
+expectStderr 1 nix-store --delete "$openPath" | grepQuiet "Cannot delete path.*because it's referenced by the GC root '$rootPrefix"
 
 nix-store --gc
 

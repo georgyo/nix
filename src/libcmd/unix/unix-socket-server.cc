@@ -54,6 +54,13 @@ PeerInfo getPeerInfo(Descriptor remote)
         peer.gid = cred.cr_gid;
     }
 
+#  if defined(LOCAL_PEERPID)
+    pid_t pid;
+    socklen_t pidLen = sizeof(pid);
+    if (getsockopt(remote, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidLen) == 0)
+        peer.pid = pid;
+#  endif
+
 #endif
 
     return peer;
@@ -130,7 +137,7 @@ PeerInfo getPeerInfo(Descriptor remote)
                     throw SysError("accepting connection");
                 }
 
-                handler(std::move(remote), [&]() { listeningSockets.clear(); });
+                handler(std::move(remote));
             }
 
         } catch (AbortServeSocket &) {

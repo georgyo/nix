@@ -44,6 +44,7 @@ sources = files(
   'config.cc',
   'current-process.cc',
   'environment-variables.cc',
+  'error.cc',
   'executable-path.cc',
   'file-content-address.cc',
   'file-descriptor.cc',
@@ -93,6 +94,10 @@ endif
 
 if host_machine.system() == 'darwin'
   subdir('darwin')
+endif
+
+if host_machine.system() == 'linux'
+  subdir('linux')
 endif
 
 include_dirs = [ include_directories('.') ]
