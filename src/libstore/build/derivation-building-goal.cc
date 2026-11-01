@@ -870,29 +870,6 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
 {
     co_await yield();
 
-    /* Wait for a build slot before starting the build activity, so
-       that queued builds are not reported as being built (and then
-       reported again when they actually start). */
-    if (worker.getNrLocalBuilds() >= worker.settings.maxBuildJobs) {
-        outputLocks.unlock();
-        if (waitForSlot)
-            co_await waitForBuildSlot();
-        co_return NeedsSlot{};
-    }
-
-    auto msg =
-        fmt(buildMode == bmRepair  ? "repairing outputs of '%s'"
-            : buildMode == bmCheck ? "checking outputs of '%s'"
-                                   : "building '%s'",
-            worker.store.printStorePath(drvPath));
-    auto act = make_ref<Activity>(
-        *logger,
-        lvlInfo,
-        actBuild,
-        msg,
-        std::to_array<Logger::Field>({worker.store.printStorePath(drvPath), "", 1, 1}),
-        worker.actDerivations.id);
-    buildAct = act.get_ptr();
     /* If the build throws, release the activity during stack
        unwinding, so that it is stopped as failed. */
     Finally releaseBuildAct([&]() {
@@ -909,6 +886,19 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
     auto closeLogFile = [&]() { logFile.reset(); };
 
     auto started = [&]() {
+        auto msg =
+            fmt(buildMode == bmRepair  ? "repairing outputs of '%s'"
+                : buildMode == bmCheck ? "checking outputs of '%s'"
+                                       : "building '%s'",
+                worker.store.printStorePath(drvPath));
+        auto act = make_ref<Activity>(
+            *logger,
+            lvlInfo,
+            actBuild,
+            msg,
+            std::to_array<Logger::Field>({worker.store.printStorePath(drvPath), "", 1, 1}),
+            worker.actDerivations.id);
+        buildAct = act.get_ptr();
         buildLog = std::make_unique<BuildLog>(worker.settings.logLines, act);
         mcRunningBuilds = std::make_unique<MaintainCount<uint64_t>>(worker.runningBuilds);
         worker.updateProgress();
@@ -928,7 +918,6 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
         unsigned int curBuilds = worker.getNrLocalBuilds();
         if (curBuilds >= worker.settings.maxBuildJobs) {
             outputLocks.unlock();
-            buildAct.reset();
             if (waitForSlot)
                 co_await waitForBuildSlot();
             co_return NeedsSlot{};
@@ -944,12 +933,17 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
                 DerivationBuildingGoal & goal;
                 fun<void()> openLogFileFn;
                 fun<void()> closeLogFileFn;
+                std::unique_ptr<BuildLog> & buildLog;
 
                 DerivationBuildingGoalCallbacks(
-                    DerivationBuildingGoal & goal, fun<void()> openLogFileFn, fun<void()> closeLogFileFn)
+                    DerivationBuildingGoal & goal,
+                    fun<void()> openLogFileFn,
+                    fun<void()> closeLogFileFn,
+                    std::unique_ptr<BuildLog> & buildLog)
                     : goal{goal}
                     , openLogFileFn{std::move(openLogFileFn)}
                     , closeLogFileFn{std::move(closeLogFileFn)}
+                    , buildLog{buildLog}
                 {
                 }
 
@@ -968,6 +962,12 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
                 void closeLogFile() override
                 {
                     closeLogFileFn();
+                }
+
+                Activity & getActivity() override
+                {
+                    assert(buildLog);
+                    return *buildLog->act;
                 }
 
                 void processDaemonConnection(
@@ -1031,11 +1031,12 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
                 .defaultPathsInChroot = std::move(defaultPathsInChroot),
                 .systemFeatures = worker.store.config.systemFeatures.get(),
                 .desugaredEnv = std::move(desugaredEnv),
-                .act = act,
             };
 
             /* If we have to wait and retry (see below), then `builder` will
                already be created, so we don't need to create it again. */
+            auto callbacks =
+                std::make_shared<DerivationBuildingGoalCallbacks>(*this, openLogFile, closeLogFile, buildLog);
             builder = localBuildCap.externalBuilder
                           ?
 #ifdef _WIN32
@@ -1044,13 +1045,13 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
 #else
                           makeExternalDerivationBuilder(
                               makeBuildingStoreFromLocalStore(localBuildCap.localStore),
-                              std::make_shared<DerivationBuildingGoalCallbacks>(*this, openLogFile, closeLogFile),
+                              std::move(callbacks),
                               std::move(params),
                               *localBuildCap.externalBuilder)
 #endif
                           : makeDerivationBuilder(
                                 makeBuildingStoreFromLocalStore(localBuildCap.localStore),
-                                std::make_shared<DerivationBuildingGoalCallbacks>(*this, openLogFile, closeLogFile),
+                                std::move(callbacks),
                                 std::move(params)
 #ifdef _WIN32
                                     ,

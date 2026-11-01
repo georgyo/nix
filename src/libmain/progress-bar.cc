@@ -144,7 +144,9 @@ public:
         : isTTY(isTTY)
         , printMultiline(printMultiline)
         , interruptCallback(createInterruptCallback([&]() {
-            pause();
+            /* Don't print the current activities, since we're about
+               to abort them anyway. */
+            pause(false);
             redraw("\rshutting down\e[K");
         }))
     {
@@ -210,6 +212,11 @@ public:
 
     void pause() override
     {
+        pause(true);
+    }
+
+    void pause(bool showActivities)
+    {
         auto state(state_.lock());
         state->suspensions++;
         if (state->suspensions > 1) {
@@ -222,8 +229,9 @@ public:
             /* Show activities that were previously only shown on the
                progress bar. Otherwise the user won't know what's
                happening. */
-            for (auto & act : state->activities)
-                logActivity(*state, lvlNotice, act);
+            if (showActivities)
+                for (auto & act : state->activities)
+                    logActivity(*state, lvlNotice, act);
             unhideCursorIfNeeded();
         }
     }

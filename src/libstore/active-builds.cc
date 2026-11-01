@@ -1,11 +1,8 @@
 #include "nix/store/active-builds.hh"
 #include "nix/util/json-utils.hh"
+#include "nix/util/users.hh"
 
 #include <nlohmann/json.hpp>
-
-#ifndef _WIN32
-#  include <pwd.h>
-#endif
 
 namespace nix {
 
@@ -19,12 +16,8 @@ UserInfo UserInfo::fromUid(uid_t uid)
     info.uid = uid;
 
 #ifndef _WIN32
-    // Look up the user name for the UID (thread-safe)
-    struct passwd pwd;
-    struct passwd * result;
-    std::vector<char> buf(16384);
-    if (getpwuid_r(uid, &pwd, buf.data(), buf.size(), &result) == 0 && result)
-        info.name = result->pw_name;
+    if (auto pw = getUserById(uid))
+        info.name = pw->name;
 #endif
 
     return info;
@@ -126,6 +119,7 @@ ActiveBuild adl_serializer<ActiveBuild>::from_json(const json & j)
         .clientUid = j.at("clientUid").get<std::optional<uid_t>>(),
         .mainPid = j.at("mainPid").get<pid_t>(),
         .mainUser = j.at("mainUser").get<UserInfo>(),
+        .mainUidCount = j.contains("mainUidCount") ? j.at("mainUidCount").get<uid_t>() : 1,
         .cgroup = std::move(cgroup),
         .startTime = (time_t) j.at("startTime").get<double>(),
         .derivation = StorePath{getString(j.at("derivation"))},
@@ -141,6 +135,7 @@ void adl_serializer<ActiveBuild>::to_json(json & j, const ActiveBuild & build)
         {"clientUid", build.clientUid},
         {"mainPid", build.mainPid},
         {"mainUser", build.mainUser},
+        {"mainUidCount", build.mainUidCount},
         {"cgroup", build.cgroup ? nlohmann::json(*build.cgroup) : nlohmann::json(nullptr)},
         {"startTime", (double) build.startTime},
         {"derivation", build.derivation.to_string()},

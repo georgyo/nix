@@ -553,7 +553,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs(LocalStore & localStore)
                     PathFmt(store->toRealPath(newInfo.path)));
                 deletePath(actualPath);
                 /* Trigger the hash-mismatch error. */
-                checkCAOutput(*store, drvPath, *output, newInfo, outputName, *act);
+                checkCAOutput(*store, drvPath, *output, newInfo, outputName, miscMethods->getActivity());
                 unreachable();
             }
         }
@@ -675,7 +675,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs(LocalStore & localStore)
 
     /* Apply output checks. This includes checking of the wanted vs got
        hash of fixed-outputs. */
-    checkOutputs(localStore, drvPath, drv, drvOptions.outputChecks, infos, *act);
+    checkOutputs(localStore, drvPath, drv, drvOptions.outputChecks, infos, miscMethods->getActivity());
 
     if (buildMode == bmCheck) {
         return {};
@@ -737,7 +737,7 @@ SingleDrvOutputs DerivationBuilderImpl::checkSubmittedOutputs(LocalStore & local
 
     // checkOutputs only performs checks that make sense for both submitting and non-submitting derivations,
     // more verification steps needed afterward
-    checkOutputs(localStore, drvPath, drv, drvOptions.outputChecks, infos, *act);
+    checkOutputs(localStore, drvPath, drv, drvOptions.outputChecks, infos, miscMethods->getActivity());
 
     for (auto & [outputName, output] : drv.outputs) {
         // For some reason cannot be moved to checkOutputs, needs debugging

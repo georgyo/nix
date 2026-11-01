@@ -11,6 +11,7 @@
 
 let
   inherit (pkgs) lib;
+  inherit (nixMake.hostPlatform) isDarwin isLinux;
 
   tests = nixMake.mkComponent {
     name = "determinate-nix-util-tests";
@@ -25,12 +26,14 @@ let
 
     root = ./.;
 
-    # Darwin-only tests, and the fuzz harnesses (Meson option `fuzzers`,
-    # off by default).
+    # The fuzz harnesses (Meson option `fuzzers`, off by default), and the
+    # Darwin-only tests elsewhere. libnixutil only interposes __cxa_throw on
+    # Linux (see src/libutil/make.nix).
     excludeSources = [
-      "darwin"
       "fuzz"
-    ];
+    ]
+    ++ lib.optional (!isDarwin) "darwin"
+    ++ lib.optional (!isLinux) "cxa-throw.cc";
 
     includeDirs = [ "" ];
 
@@ -39,8 +42,7 @@ let
     configHeaders = {
       "util-tests-config.hh" = {
         PACKAGE_VERSION = lib.fileContents ../../.version;
-        # libnixutil interposes __cxa_throw (see src/libutil/make.nix).
-        HAVE_CXA_THROW = 1;
+        HAVE_CXA_THROW = if isLinux then 1 else 0;
       };
     };
 
@@ -49,7 +51,7 @@ let
     # -lgtest from pkg-config, which also provides its -L).
     extraLinkLibs = [ "-lgtest_main" ];
 
-    linkFlags = [ "-Wl,--wrap=__assert_fail" ];
+    linkFlags = nixMake.wrapAssertFailFlags;
   };
 
   exe = "${tests}/bin/${tests.exeName}";
@@ -67,10 +69,11 @@ tests
       command = [ exe ];
       inherit env;
     };
-
-    # Run the same tests with newer syscalls disabled via seccomp, to
-    # exercise fallback paths (iterative openat for openat2, /proc/self/fd
-    # for fchmodat2).
+  }
+  # Run the same tests with newer syscalls disabled via seccomp, to
+  # exercise fallback paths (iterative openat for openat2, /proc/self/fd
+  # for fchmodat2). Linux only, as in Meson.
+  // lib.optionalAttrs isLinux {
     run-without-new-syscalls = nixMake.runTest {
       name = "${tests.name}-run-without-new-syscalls";
       command = [

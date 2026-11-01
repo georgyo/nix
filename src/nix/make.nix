@@ -73,7 +73,7 @@ nixMake.mkComponent {
     };
   };
 
-  linkFlags = [ "-Wl,--wrap=__assert_fail" ];
+  linkFlags = nixMake.wrapAssertFailFlags;
 
   binSymlinks = [
     "nix-build"

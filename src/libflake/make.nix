@@ -29,5 +29,5 @@ nixMake.mkComponent {
 
   embeds."flake.cc"."call-flake.nix" = ./call-flake.nix;
 
-  linkFlags = [ "-Wl,--wrap=__assert_fail" ];
+  linkFlags = nixMake.wrapAssertFailFlags;
 }

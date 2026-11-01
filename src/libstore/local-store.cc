@@ -149,6 +149,20 @@ struct LocalStore::State::Stmts
     SQLiteStmt QueryPathFromHashPart;
     SQLiteStmt QueryValidPaths;
     SQLiteStmt QuerySchemaMigration;
+
+    /**
+     * The realisation statements (and the CA schema) are only set up
+     * if `ca-derivations` was enabled when the store was opened, so
+     * throw an error if it got enabled later (e.g. by a flake's
+     * `nixConfig`).
+     */
+    void requireCaDerivations()
+    {
+        if (!QueryRealisedOutput.stmt)
+            throw Error(
+                "experimental Nix feature 'ca-derivations' was enabled after the Nix store was opened; "
+                "enable it in nix.conf or on the command line instead");
+    }
 };
 
 /**
@@ -216,7 +230,7 @@ LocalStore::LocalStore(ref<const Config> config)
     if (isRootUser() && localSettings.buildUsersGroup != "") {
         mode_t perm = 01775;
 
-        struct group * gr = getgrnam(localSettings.buildUsersGroup.get().c_str());
+        auto gr = getGroupByName(localSettings.buildUsersGroup);
         if (!gr)
             printError(
                 "warning: the group '%1%' specified in 'build-users-group' does not exist",
@@ -224,8 +238,8 @@ LocalStore::LocalStore(ref<const Config> config)
         else if (!config->readOnly) {
             auto st = stat(config->realStoreDir.get());
 
-            if (st.st_uid != 0 || st.st_gid != gr->gr_gid || (st.st_mode & ~S_IFMT) != perm) {
-                chown(config->realStoreDir.get(), 0, gr->gr_gid);
+            if (st.st_uid != 0 || st.st_gid != gr->gid || (st.st_mode & ~S_IFMT) != perm) {
+                chown(config->realStoreDir.get(), 0, gr->gid);
                 chmod(config->realStoreDir.get(), perm);
             }
         }
@@ -723,6 +737,7 @@ void LocalStore::registerDrvOutputUnchecked(const Realisation & info)
     experimentalFeatureSettings.require(Xp::CaDerivations);
     retrySQLite<void>([&]() {
         auto state(_state->lock());
+        state->stmts->requireCaDerivations();
         if (auto oldR = queryRealisation_(*state, info.id)) {
             if (info.isCompatibleWith(*oldR)) {
                 auto combinedSignatures = oldR->signatures;
@@ -1953,6 +1968,7 @@ void LocalStore::addSignatures(const StorePath & storePath, const std::set<Signa
 std::optional<std::pair<int64_t, UnkeyedRealisation>>
 LocalStore::queryRealisationCore_(LocalStore::State & state, const DrvOutput & id)
 {
+    state.stmts->requireCaDerivations();
     auto useQueryRealisedOutput(
         state.stmts->QueryRealisedOutput.use().apply(id.drvPath.to_string()).apply(id.outputName));
     if (!useQueryRealisedOutput.next())

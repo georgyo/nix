@@ -28,6 +28,8 @@
 #ifdef __linux__
 #  include <sys/prctl.h>
 #  include <sys/mman.h>
+#  include <sys/syscall.h>
+#  include <linux/sched.h>
 #endif
 
 #include "util-unix-config-private.hh"
@@ -266,6 +268,27 @@ static int childEntry(void * arg)
     fun();
     return 1;
 }
+
+/* Create a child in the cgroup `cgroupFd`. Since we don't pass a
+   stack or CLONE_VM, this has fork() semantics: the child continues
+   on a copy of the parent's stack. */
+static pid_t doCloneIntoCgroup(int cloneFlags, int cgroupFd, ChildWrapperFunction & fun) __attribute__((noinline));
+
+static pid_t doCloneIntoCgroup(int cloneFlags, int cgroupFd, ChildWrapperFunction & fun)
+{
+    struct clone_args args = {
+        .flags = (uint64_t(cloneFlags) & ~uint64_t(CSIGNAL)) | CLONE_INTO_CGROUP,
+        /* clone3() doesn't allow an exit signal with CLONE_PARENT;
+           the child inherits ours instead. */
+        .exit_signal = uint64_t(cloneFlags & CLONE_PARENT ? 0 : SIGCHLD),
+        .cgroup = uint64_t(cgroupFd),
+    };
+    pid_t pid = syscall(SYS_clone3, &args, sizeof(args));
+    if (pid != 0)
+        return pid;
+    fun();
+    unreachable();
+}
 #endif
 
 pid_t startProcess(fun<void()> processMain, const ProcessOptions & options)
@@ -307,7 +330,14 @@ pid_t startProcess(fun<void()> processMain, const ProcessOptions & options)
 
     pid_t pid = INVALID_PID;
 
-    if (options.cloneFlags) {
+    if (options.cgroupFd != -1) {
+#ifdef __linux__
+        assert(!(options.cloneFlags & CLONE_VM));
+        pid = doCloneIntoCgroup(options.cloneFlags, options.cgroupFd, wrapper);
+#else
+        throw Error("creating a process in a cgroup is only supported on Linux");
+#endif
+    } else if (options.cloneFlags) {
 #ifdef __linux__
         // Not supported, since then we don't know when to free the stack.
         assert(!(options.cloneFlags & CLONE_VM));
