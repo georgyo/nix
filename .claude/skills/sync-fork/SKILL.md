@@ -27,7 +27,7 @@ Copy this checklist and check off items as you complete them:
 * `upstream` is upstream Nix, `github.com:NixOS/nix`, branch `master`.
 * `georgyo` is the user's fork, `git@github.com:georgyo/nix.git`. Its `master` mirrors local `main`. This is the push target.
 
-Check that the working tree is clean and that `main` equals `georgyo/master` (or explain the difference to the user). Then `git fetch origin && git fetch upstream && git fetch georgyo`.
+Check that the working tree is clean. Then `git fetch origin && git fetch upstream && git fetch georgyo`, and check that `main` equals `georgyo/master`. The user also pushes their own commits to `georgyo/master`: if it is ahead of `main`, fast-forward first (`git merge --ff-only georgyo/master`), so that the force push at the end doesn't drop them. Explain any other difference to the user.
 
 ## Step 1: Merge Determinate Nix
 
@@ -43,6 +43,7 @@ Resolve every conflict by understanding **both** sides, not by picking one:
   * Both sides add entries to a list (protocol features, includes, options): keep both.
 * `.version`: keep upstream's version (e.g. `2.36.0`); Determinate's own version is in `.version-determinate`.
 * Deleted-vs-modified `.github/` files: keep them deleted when Determinate deleted them.
+* `git checkout --ours/--theirs <file>` replaces the whole file, including hunks that merged cleanly. Before using it, check with `git diff origin/main HEAD -- <file>` (or `upstream/master`) that the side you drop has no other changes. Otherwise start from one side and re-apply the other side's change by hand.
 
 Search for leftover markers before committing: `git diff --check` and `git grep -n -E '^(<<<<<<<|>>>>>>>)'`. Build (step 3) before committing, so that fixes to the merge are part of the merge commit. Commit with the default merge message (`Merge remote-tracking branch 'origin/main'`) plus the `Assisted-by:` trailer from AGENTS.md.
 
@@ -73,7 +74,7 @@ nix develop -c bash -c 'meson setup --reconfigure build && ninja -C build -k 0' 
 
 Do this after each merge, before committing it.
 
-If linking fails with a missing `/nix/store/...` library, or meson can't find a dependency, the build directory cached a dev shell that has changed (e.g. Determinate updated a patched dependency). `--clearcache` is not enough because meson also caches `PKG_CONFIG_PATH`: `rm -rf build` and set it up again with `meson setup build -Dlibexpr:wasm=enabled -Dlibstore:wasm=enabled`. The `wasm` options default to `auto`, which leaves wasm disabled; without them the resulting `nix` can't evaluate nix-make (step 4).
+If linking fails with a missing `/nix/store/...` library, or meson can't find a dependency, the build directory cached a dev shell that has changed (e.g. Determinate updated a patched dependency or Nixpkgs). Another symptom: `-Werror=sign-compare` errors inside `gtest.h` in every test file, because the stale gtest include directory is no longer an `-isystem` directory of the new shell. `--clearcache` is not enough because meson also caches `PKG_CONFIG_PATH`: `rm -rf build` and set it up again with `meson setup build -Dlibexpr:wasm=enabled -Dlibstore:wasm=enabled`. The `wasm` options default to `auto`, which leaves wasm disabled; without them the resulting `nix` can't evaluate nix-make (step 4).
 
 **nix-make doesn't read `meson.build`.** It compiles every source file under a component's directory, minus `excludeSources`, and takes config macros from `configHeaders` in the component's `src/*/make.nix`. So check `git diff <before>..HEAD -- '*meson.build'` for:
 
@@ -108,6 +109,8 @@ Build `nix build -L .#nix-eval-jobs`. It is the Determinate nix-eval-jobs fork p
   ```
 
 Then build `nix build -L .#nix-fast-build`. It is Nixpkgs' nix-fast-build with `nix-eval-jobs` overridden to the one above, so its wrapper puts that nix-eval-jobs and its Nix (`nix-eval-jobs.nix`) on `PATH`. Smoke test it on a tiny flake in the scratchpad (a few `derivation`s with `builder = "/bin/sh"` under `checks.<system>`): `<out>/bin/nix-fast-build --flake .#checks --no-nom --no-link` must build them all and exit 0.
+
+When the daemon or the cgroup code changed (`src/nix/unix/daemon.cc`, `src/libutil/linux/cgroup.cc`, `linux-derivation-builder.cc`), also run the NixOS cgroups test: `nix build -L .#hydraJobs.tests.cgroups`. It needs a builder with the `kvm` feature (there is one, even though `/dev/kvm` doesn't exist locally). It checks Determinate's delegation of the cpu/memory/io/pids controllers to per-build cgroups, which broke once already when upstream changed how the daemon starts its per-connection workers. The `otel` functional test is skipped in nix-make (built without OpenTelemetry); run it with the meson build: `nix develop -c meson test -C build --suite main otel`.
 
 ## Step 6: Format, commit and push
 
